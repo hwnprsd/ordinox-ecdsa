@@ -56,11 +56,22 @@ func NewOrdinoxCanister(id string, pkHex string) OrdinoxCanisterClient {
 	}
 }
 
-func (o *OrdinoxCanisterClient) CreateOrSignMessage(message string) (string, error) {
+func (o *OrdinoxCanisterClient) CreateOrSignEvmMessage(message EvmTransferMessage) (string, error) {
 	a, _ := agent.New(o.cfg)
 	var msg cmotoko.Result[string, string]
 	// create new agent and then call
-	err := a.Call(o.canisterId, "create_or_sign_message", []any{message}, []any{&msg})
+	err := a.Call(
+		o.canisterId,
+		"create_or_sign_evm_message",
+		[]any{
+			message.Nonce,
+			message.ChainId,
+			message.TokenAddress,
+			message.ToAddress,
+			message.Amount,
+		},
+		[]any{&msg},
+	)
 	if err != nil {
 		return "x", err
 	}

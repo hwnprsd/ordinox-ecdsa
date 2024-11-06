@@ -96,7 +96,14 @@ async fn sign_message(id: String) -> Result<String, String> {
         .with(|state| state.borrow().messages.get(&id).cloned())
         .ok_or("Message not found")?;
 
-    evm::sign_evm_message(message.hash()).await
+    let signature = evm::sign_evm_message(message.hash()).await?;
+        STATE.with(|state| {
+                let mut s = state.borrow_mut();
+                if let Some(msg) = s.messages.get_mut(&id) {
+                    msg.signature = Some(signature);
+                }
+            });
+            Ok(id)
 }
 
 #[query]
@@ -106,8 +113,8 @@ fn get_signature(msg_id: String) -> String {
             .borrow()
             .messages
             .get(&msg_id)
-            .and_then(|m| m.signature.clone())
-            .unwrap_or_else(|| "Message or signature not found".to_string())
+            .map(|m| m.signature.clone().unwrap_or_else(|| "msg found but not signed".to_string()))
+            .unwrap_or_else(|| "no msg found with id".to_string())
     })
 }
 

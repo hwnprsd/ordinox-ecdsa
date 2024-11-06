@@ -17,3 +17,7 @@ func NewEvmTransferMessage(nonce uint64, chainId, toAddr, tokenAddr, amount stri
 		ChainId:      chainId,
 	}
 }
+
+func (e EvmTransferMessage) Hex() string {
+	return "Not Implemented"
+}

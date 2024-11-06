@@ -27,9 +27,10 @@ async fn evm_address() -> Result<String, String> {
 pub(super) async fn sign_evm_message(msg: String) -> Result<String, String> {
     let signer = create_icp_sepolia_signer().await;
     match signer.sign_message(msg.as_bytes()).await {
-        Ok(signature) => signature.to_k256().and_then(|s| Ok(s.to_string())).map_err(|err| err.to_string()), 
+        Ok(signature) => Ok(format!("{:?}", signature)), 
         Err(err) => Err(err.to_string())
     }
+    // Ok("OK".to_string())
 }
 
 
