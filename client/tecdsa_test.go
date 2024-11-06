@@ -4,12 +4,12 @@ import (
 	"crypto/ed25519"
 	"encoding/hex"
 	"fmt"
-	"net/url"
-	"testing"
-
 	"github.com/aviate-labs/agent-go"
 	"github.com/aviate-labs/agent-go/identity"
 	"github.com/aviate-labs/agent-go/principal"
+	"github.com/stretchr/testify/assert"
+	"net/url"
+	"testing"
 )
 
 const CANISTER_ID = "bkyz2-fmaaa-aaaaa-qaaaq-cai"
@@ -60,7 +60,6 @@ func TestECDSA(t *testing.T) {
 	}
 
 	address, err := o1.GetEvmAddress()
-	fmt.Println("Address - ", address)
 
 	msg := NewEvmTransferMessage(
 		10, "BASECHAIN", "0x1234", "0x1234", "100",
@@ -82,20 +81,17 @@ func TestECDSA(t *testing.T) {
 		t.Fatalf("error signing message, %e", err)
 	}
 
-	fmt.Println(msgHash)
 	sig, err := o1.GetSignature(msgHash)
 	if err != nil {
 		t.Fatalf("error signing message, %e", err)
 	}
 
-	fmt.Println("sig", sig)
-
-	fmt.Println(verifyEvmSig(address, msgHash, sig))
+	assert.True(t, verifyEvmSig(address, msgHash, sig))
 }
 
 func setupCanister(a *agent.Agent, canisterID principal.Principal, signers []principal.Principal, threshold uint32) error {
 	res := ""
 	err := a.Call(canisterID, "setup", []any{signers, threshold}, []any{&res})
-	fmt.Println("Canister setup complete")
+
 	return err
 }
