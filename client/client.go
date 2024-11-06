@@ -59,7 +59,6 @@ func NewOrdinoxCanister(id string, pkHex string) OrdinoxCanisterClient {
 func (o *OrdinoxCanisterClient) CreateOrSignEvmMessage(message EvmTransferMessage) (string, error) {
 	a, _ := agent.New(o.cfg)
 	var msg cmotoko.Result[string, string]
-	// create new agent and then call
 	err := a.Call(
 		o.canisterId,
 		"create_or_sign_evm_message",
@@ -92,8 +91,17 @@ func (o *OrdinoxCanisterClient) GetSignature(msgId string) (string, error) {
 func (o *OrdinoxCanisterClient) GetPublicKey() (string, error) {
 	a, _ := agent.New(o.cfg)
 	var msg cmotoko.Result[string, string]
-	// create new agent and then call
 	err := a.Call(o.canisterId, "public_key", []any{}, []any{&msg})
+	if err != nil {
+		return "x", err
+	}
+	return *msg.Ok, err
+}
+
+func (o *OrdinoxCanisterClient) GetEvmPublicKey() (string, error) {
+	a, _ := agent.New(o.cfg)
+	var msg cmotoko.Result[string, string]
+	err := a.Call(o.canisterId, "evm_pub_key", []any{}, []any{&msg})
 	if err != nil {
 		return "x", err
 	}
@@ -103,7 +111,6 @@ func (o *OrdinoxCanisterClient) GetPublicKey() (string, error) {
 func (o *OrdinoxCanisterClient) GetEvmAddress() (string, error) {
 	a, _ := agent.New(o.cfg)
 	var msg cmotoko.Result[string, string]
-	// create new agent and then call
 	err := a.Call(o.canisterId, "evm_address", []any{}, []any{&msg})
 	if err != nil {
 		return "x", err
