@@ -15,7 +15,7 @@ type State = record {
 service : {
     setup : (vec principal, nat32) -> (variant { Ok; Err : text });
     create_or_sign_message : (text) -> (variant { Ok : nat64; Err : text });
-    get_message : (text) -> (opt Message) query;
+    get_signature : (text) -> (text) query;
     caller : () -> (principal) query;
     state : () -> (State) query;
 }

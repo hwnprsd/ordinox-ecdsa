@@ -4,6 +4,10 @@
       "candid": "src/ecdsa_example_rust/ecdsa_example.did",
       "package": "ecdsa_example",
       "type": "rust"
+    },
+    "evm_rpc": {
+      "type": "pull",
+      "id": "7hfb6-caaaa-aaaar-qadga-cai"
     }
   }
 }
