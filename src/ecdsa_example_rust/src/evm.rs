@@ -1,15 +1,5 @@
-use ic_cdk::{query, update};
-use alloy::{
-    network::{NetworkWallet, TxSigner}, signers::icp::IcpSigner, transports::icp::{RpcApi, RpcService}
-};
-use alloy::{
-    network::EthereumWallet,
-    primitives::{address, U256, Signature, SignatureError},
-    providers::{Provider, ProviderBuilder},
-    signers::Signer,
-    sol,
-    transports::icp::IcpConfig,
-};
+use ic_cdk:: update;
+use alloy::signers::{icp::IcpSigner, Signer};
 
 fn get_ecdsa_key_name() -> String {
     #[allow(clippy::option_env_unwrap)]
@@ -34,9 +24,9 @@ async fn evm_address() -> Result<String, String> {
      })
 }
 
-async fn sign_evm_message(msg: &[u8]) -> Result<String, String> {
+pub(super) async fn sign_evm_message(msg: String) -> Result<String, String> {
     let signer = create_icp_sepolia_signer().await;
-    match signer.sign_message(msg).await {
+    match signer.sign_message(msg.as_bytes()).await {
         Ok(signature) => signature.to_k256().and_then(|s| Ok(s.to_string())).map_err(|err| err.to_string()), 
         Err(err) => Err(err.to_string())
     }

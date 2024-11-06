@@ -3,8 +3,10 @@ use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
+use crate::sha256;
+
 #[derive(CandidType, Serialize, Deserialize, Clone, Debug)]
-struct MessageV2 {
+pub(super) struct EvmTransferMessage {
     pub signers: Vec<Principal>,
     pub to_address: String,
     pub token_address: String,
@@ -14,12 +16,16 @@ struct MessageV2 {
     pub nonce: u64,
 }
 
-impl MessageV2 {
+impl EvmTransferMessage {
     pub fn encode(self) -> String {
         format!(
             "{}|{}|{}|{}|{}",
             self.nonce, self.chain_id, self.token_address, self.to_address, self.amount
         )
+    }
+
+    pub fn hash(self) -> String {
+        hex::encode(sha256(&self.encode()))
     }
 }
 
@@ -36,7 +42,7 @@ pub(super) struct Message {
 pub(super) struct State {
     pub signers: HashSet<Principal>,
     pub threshold: u32,
-    pub messages: HashMap<String, MessageV2>,
+    pub messages: HashMap<String, EvmTransferMessage>,
 }
 
 thread_local! {

@@ -1,8 +1,7 @@
 use candid::Principal;
-use ic_cdk::api::management_canister::ecdsa::{ ecdsa_public_key, sign_with_ecdsa, EcdsaCurve, EcdsaKeyId, SignWithEcdsaArgument, EcdsaPublicKeyArgument };
+use ic_cdk::api::management_canister::ecdsa::{ ecdsa_public_key, EcdsaCurve, EcdsaKeyId,  EcdsaPublicKeyArgument };
 use ic_cdk::{query, update};
-use tiny_keccak::{Hasher, Keccak};
-use state::{STATE, State, Message};
+use state::{STATE, State, EvmTransferMessage};
 
 mod evm;
 mod state;
@@ -40,9 +39,16 @@ async fn caller() -> Principal {
 }
 
 #[update]
-async fn create_or_sign_message(message: String) -> Result<String, String> {
+async fn create_or_sign_evm_message(nonce: u64, chain_id: String, token_address: String, to_address: String, amount: String) -> Result<String, String> {
+
+    let mut msg = EvmTransferMessage {
+        signers: vec![], 
+        signature: None, 
+        token_address, to_address, chain_id, amount, nonce,
+    };
+
     let caller = ic_cdk::caller();
-    let msg_id = hex::encode(sha256(&message));
+    let msg_id = msg.clone().hash();
 
     // Check if the caller is an authorized signer and if the message exists
     let (is_authorized, message_exists, threshold) = STATE.with(|state| {
@@ -77,90 +83,20 @@ async fn create_or_sign_message(message: String) -> Result<String, String> {
         // Create a new message
         STATE.with(|state| {
             let mut s = state.borrow_mut();
-                let new_message = Message {
-                id: msg_id.clone(),
-                data: message,
-                signers: vec![caller],
-                signature: None,
-            };
-            s.messages.insert(msg_id.clone(), new_message);
+            msg.signers.push(caller);
+            s.messages.insert(msg_id.clone(), msg);
             Ok(msg_id)
         })
     }
 }
 
-async fn sign_with_sha256(data: &str) -> Result<String, String> {
-    let request = SignWithEcdsaArgument {
-        message_hash: sha256(data).to_vec(),
-        derivation_path: vec![],
-        key_id: EcdsaKeyId {
-            curve: EcdsaCurve::Secp256k1,
-            name: "dfx_test_key".to_string(),
-        },
-    };
-
-    match sign_with_ecdsa(request).await {
-        Ok((response,)) => Ok(hex::encode(response.signature)),
-        Err(e) => Err(format!("Failed to sign message with SHA-256: {:?}", e)),
-    }
-}
-
-async fn sign_with_keccak256(data: &str) -> Result<String, String> {
-    let request = SignWithEcdsaArgument {
-        message_hash: keccak256(data).to_vec(),
-        derivation_path: vec![],
-        key_id: EcdsaKeyId {
-            curve: EcdsaCurve::Secp256k1,
-            name: "dfx_test_key".to_string(),
-        },
-    };
-
-    match sign_with_ecdsa(request).await {
-        Ok((response,)) => Ok(hex::encode(response.signature)),
-        Err(e) => Err(format!("Failed to sign message with Keccak-256: {:?}", e)),
-    }
-}
-
-
-fn keccak256(input: &str) -> [u8; 32] {
-    let mut hasher = Keccak::v256();
-    let mut output = [0u8; 32];
-    hasher.update(input.as_bytes());
-    hasher.finalize(&mut output);
-    output
-}
-
-
 async fn sign_message(id: String) -> Result<String, String> {
-
     // instead of just signing, call the contract
-
     let message = STATE
         .with(|state| state.borrow().messages.get(&id).cloned())
         .ok_or("Message not found")?;
 
-    let request = SignWithEcdsaArgument {
-        message_hash: keccak256(&message.data).to_vec(),
-        derivation_path: vec![],
-        key_id: EcdsaKeyId {
-            curve: EcdsaCurve::Secp256k1,
-            name: "dfx_test_key".to_string(),
-        },
-    };
-
-    match sign_with_ecdsa(request).await {
-        Ok((response,)) => {
-            let signature = hex::encode(response.signature);
-            STATE.with(|state| {
-                let mut s = state.borrow_mut();
-                if let Some(msg) = s.messages.get_mut(&id) {
-                    msg.signature = Some(signature);
-                }
-            });
-            Ok(id)
-        }
-        Err(e) => Err(format!("Failed to sign message: {:?}", e)),
-    }
+    evm::sign_evm_message(message.hash()).await
 }
 
 #[query]
