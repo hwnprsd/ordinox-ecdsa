@@ -1,4 +1,4 @@
-package thresholdecdsa
+package ordinox_ecdsa_canister
 
 type EvmTransferMessage struct {
 	ToAddress    string

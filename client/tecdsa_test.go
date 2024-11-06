@@ -1,4 +1,4 @@
-package thresholdecdsa
+package ordinox_ecdsa_canister
 
 import (
 	"crypto/ed25519"
@@ -12,7 +12,7 @@ import (
 	"testing"
 )
 
-const CANISTER_ID = "bkyz2-fmaaa-aaaaa-qaaaq-cai"
+const CANISTER_ID = "bw4dl-smaaa-aaaaa-qaacq-cai"
 
 // const CANISTER_ID = "bd3sg-teaaa-aaaaa-qaaba-cai"
 
