@@ -1,3 +1,5 @@
+use std::vec;
+
 use ic_cdk:: update;
 use alloy::signers::{icp::IcpSigner, Signer};
 
@@ -16,6 +18,12 @@ async fn create_icp_sepolia_signer() -> IcpSigner {
     IcpSigner::new(vec![], &ecdsa_key_name, None).await.unwrap()
 }
 
+#[update]
+async fn evm_pub_key() -> Result<String, String> {
+    let signer = create_icp_sepolia_signer().await;
+    Ok(hex::encode(signer.public_key()))
+}
+
 
 #[update]
 async fn evm_address() -> Result<String, String> {
@@ -24,13 +32,12 @@ async fn evm_address() -> Result<String, String> {
      })
 }
 
-pub(super) async fn sign_evm_message(msg: String) -> Result<String, String> {
+pub(super) async fn sign_evm_message(msg: &[u8]) -> Result<String, String> {
     let signer = create_icp_sepolia_signer().await;
-    match signer.sign_message(msg.as_bytes()).await {
+    match signer.sign_message(msg).await {
         Ok(signature) => Ok(format!("{:?}", signature)), 
         Err(err) => Err(err.to_string())
     }
-    // Ok("OK".to_string())
 }
 
 

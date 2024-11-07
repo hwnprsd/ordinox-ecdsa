@@ -1,7 +1,9 @@
+use alloy::primitives::{keccak256, Address, U256};
 use candid::{CandidType, Principal};
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::str::FromStr;
 
 use crate::sha256;
 
@@ -18,14 +20,24 @@ pub(super) struct EvmTransferMessage {
 
 impl EvmTransferMessage {
     pub fn encode(self) -> String {
-        format!(
-            "{}|{}|{}|{}|{}",
-            self.nonce, self.chain_id, self.token_address, self.to_address, self.amount
-        )
+        let token_addr = Address::from_str(self.token_address.as_str()).unwrap();
+        let to_addr = Address::from_str(self.to_address.as_str()).unwrap();
+        let amt = U256::from_str(self.amount.as_str()).unwrap();
+        let nonce = U256::from(self.nonce);
+        let chain_id = U256::from_str(self.chain_id.as_str()).unwrap();
+
+        let mut encoded: Vec<u8> = Vec::new();
+        encoded.extend_from_slice(&nonce.as_le_bytes());
+        encoded.extend_from_slice(&chain_id.as_le_bytes());
+        encoded.extend_from_slice(token_addr.as_slice());
+        encoded.extend_from_slice(to_addr.as_slice());
+        encoded.extend_from_slice(&amt.as_le_bytes());
+
+        keccak256(encoded).to_string()
     }
 
     pub fn hash(self) -> String {
-        hex::encode(sha256(&self.encode()))
+        return self.encode();
     }
 }
 

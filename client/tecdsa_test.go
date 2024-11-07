@@ -12,7 +12,7 @@ import (
 	"testing"
 )
 
-const CANISTER_ID = "bw4dl-smaaa-aaaaa-qaacq-cai"
+const CANISTER_ID = "bkyz2-fmaaa-aaaaa-qaaaq-cai"
 
 // const CANISTER_ID = "bd3sg-teaaa-aaaaa-qaaba-cai"
 
@@ -56,13 +56,13 @@ func TestECDSA(t *testing.T) {
 
 	err = setupCanister(a, canisterID, []principal.Principal{o1.sender, o2.sender, o3.sender}, 2)
 	if err != nil {
-		t.Fatalf("failed to setup canister")
+		t.Fatalf("failed to setup canister: %v", err)
 	}
 
 	address, err := o1.GetEvmAddress()
 
 	msg := NewEvmTransferMessage(
-		10, "BASECHAIN", "0x1234", "0x1234", "100",
+		10, "100", "0xA21Ddd2F6Db2E1Bc5ee29fc714d78212C9793Dda", address, "100",
 	)
 
 	msgHash, err := o1.CreateOrSignEvmMessage(msg)
@@ -73,7 +73,7 @@ func TestECDSA(t *testing.T) {
 
 	_, err = o2.CreateOrSignEvmMessage(msg)
 	if err != nil {
-		fmt.Println(err)
+		t.Fatalf("error signing message, %e", err)
 	}
 
 	_, err = o3.CreateOrSignEvmMessage(msg)
@@ -86,7 +86,14 @@ func TestECDSA(t *testing.T) {
 		t.Fatalf("error signing message, %e", err)
 	}
 
-	assert.True(t, verifyEvmSig(address, msgHash, sig))
+	fmt.Println("msg", msgHash)
+	sigHex := constructSignature(sig)
+	fmt.Println("sig", sigHex)
+	verified, err := verifyEvmSig(address, msgHash, sigHex)
+	if err != nil {
+		t.Fatalf("error verifying signature, %e", err)
+	}
+	assert.True(t, verified, "signature verification should pass")
 }
 
 func setupCanister(a *agent.Agent, canisterID principal.Principal, signers []principal.Principal, threshold uint32) error {

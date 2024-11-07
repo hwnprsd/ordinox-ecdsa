@@ -1,8 +1,8 @@
 {
   "canisters": {
-    "ecdsa_example_rust": {
-      "candid": "src/ecdsa_example_rust/ecdsa_example.did",
-      "package": "ecdsa_example",
+    "ordinox_ecdsa": {
+      "candid": "src/ordinox_ecdsa/ordinox_ecdsa.did",
+      "package": "ordinox_ecdsa",
       "type": "rust"
     },
     "evm_rpc": {

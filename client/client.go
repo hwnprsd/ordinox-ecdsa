@@ -71,7 +71,7 @@ func (o *OrdinoxCanisterClient) CreateOrSignEvmMessage(message EvmTransferMessag
 		},
 		[]any{&msg},
 	)
-	if err != nil {
+	if err != nil || msg.Ok == nil {
 		return "x", err
 	}
 	return *msg.Ok, err

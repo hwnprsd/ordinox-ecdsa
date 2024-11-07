@@ -1,6 +1,7 @@
 package ordinox_ecdsa_canister
 
 import (
+	"encoding/hex"
 	"fmt"
 	"log"
 	"math/big"
@@ -37,9 +38,9 @@ func parseInput(input string) (byte, *big.Int, *big.Int, error) {
 	return v, r, s, nil
 }
 
-// Function to verify the EVM signature
-func verifyEvmSig(address, message string, sig string) bool {
-	v, r, s, err := parseInput(sig)
+// Take the RSV valued raw signatures and turn them into a hex string
+func constructSignature(sigRaw string) string {
+	v, r, s, err := parseInput(sigRaw)
 	if err != nil {
 		log.Fatalf("err parsing input: %v", err)
 	}
@@ -49,21 +50,31 @@ func verifyEvmSig(address, message string, sig string) bool {
 		v -= 27
 	}
 
-	prefixedMsg := fmt.Sprintf("\x19Ethereum Signed Message:\n%d%s", len(message), message)
-	hash := crypto.Keccak256Hash([]byte(prefixedMsg))
-
 	// Create the 65-byte signature from r, s, v (adding 27 to align with Ethereum convention)
 	signature := make([]byte, 65)
 	copy(signature[0:32], r.Bytes())
 	copy(signature[32:64], s.Bytes())
 	signature[64] = v
 
+	return hex.EncodeToString(signature)
+}
+
+// Function to verify the EVM signature
+func verifyEvmSig(address, message string, sigHex string) (bool, error) {
+	signature, err := hex.DecodeString(sigHex)
+	if err != nil {
+		return false, fmt.Errorf("error decoding sigHex: %v", err)
+	}
+
+	prefixedMsg := fmt.Sprintf("\x19Ethereum Signed Message:\n%d%s", len(message), message)
+	hash := crypto.Keccak256Hash([]byte(prefixedMsg))
+
 	// Recover public key from signature
 	publicKey, err := crypto.SigToPub(hash.Bytes(), signature)
 	if err != nil {
-		log.Fatalf("Failed to recover public key: %v", err)
+		return false, fmt.Errorf("Failed to recover public key: %v", err)
 	}
 
 	recoveredAddress := crypto.PubkeyToAddress(*publicKey)
-	return strings.EqualFold(recoveredAddress.Hex(), address)
+	return strings.EqualFold(recoveredAddress.Hex(), address), nil
 }

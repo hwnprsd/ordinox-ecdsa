@@ -1,3 +1,6 @@
+use std::str::FromStr;
+
+use alloy::primitives::{Address, U256};
 use candid::Principal;
 use ic_cdk::api::management_canister::ecdsa::{ ecdsa_public_key, EcdsaCurve, EcdsaKeyId,  EcdsaPublicKeyArgument };
 use ic_cdk::{query, update};
@@ -10,7 +13,6 @@ mod state;
 fn state() -> State {
     STATE.with(|state| state.borrow().clone())
 }
-
 
 #[update]
 fn setup(signers: Vec<Principal>, threshold: u32) -> String {
@@ -40,6 +42,10 @@ async fn caller() -> Principal {
 
 #[update]
 async fn create_or_sign_evm_message(nonce: u64, chain_id: String, token_address: String, to_address: String, amount: String) -> Result<String, String> {
+    Address::parse_checksummed(token_address.clone(), None).map_err(|_| format!("error parsing token address"))?;
+    Address::parse_checksummed(to_address.clone(), None).map_err(|_| format!("error parsing to address"))?;
+    U256::from_str(amount.as_str()).map_err(|_| format!("error parsing amount"))?;
+    U256::from_str(chain_id.as_str()).map_err(|_| format!("error parsing chain_id"))?;
 
     let mut msg = EvmTransferMessage {
         signers: vec![], 
@@ -96,7 +102,7 @@ async fn sign_message(id: String) -> Result<String, String> {
         .with(|state| state.borrow().messages.get(&id).cloned())
         .ok_or("Message not found")?;
 
-    let signature = evm::sign_evm_message(message.hash()).await?;
+    let signature = evm::sign_evm_message(message.hash().as_bytes()).await?;
         STATE.with(|state| {
                 let mut s = state.borrow_mut();
                 if let Some(msg) = s.messages.get_mut(&id) {

@@ -1061,24 +1061,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ecdsa_example"
-version = "0.1.0"
-dependencies = [
- "alloy",
- "candid",
- "getrandom",
- "hex",
- "ic-agent",
- "ic-cdk 0.16.0",
- "ic-cdk-timers",
- "ic-evm-utils",
- "k256",
- "serde",
- "sha2 0.10.8",
- "tokio",
-]
-
-[[package]]
 name = "ed25519-consensus"
 version = "2.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2502,6 +2484,24 @@ dependencies = [
  "libc",
  "pkg-config",
  "vcpkg",
+]
+
+[[package]]
+name = "ordinox_ecdsa"
+version = "0.1.0"
+dependencies = [
+ "alloy",
+ "candid",
+ "getrandom",
+ "hex",
+ "ic-agent",
+ "ic-cdk 0.16.0",
+ "ic-cdk-timers",
+ "ic-evm-utils",
+ "k256",
+ "serde",
+ "sha2 0.10.8",
+ "tokio",
 ]
 
 [[package]]
