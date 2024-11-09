@@ -4,11 +4,11 @@ type EvmTransferMessage struct {
 	ToAddress    string
 	TokenAddress string
 	Amount       string
-	ChainId      string
+	ChainId      uint64
 	Nonce        uint64
 }
 
-func NewEvmTransferMessage(nonce uint64, chainId, toAddr, tokenAddr, amount string) EvmTransferMessage {
+func NewEvmTransferMessage(nonce, chainId uint64, toAddr, tokenAddr, amount string) EvmTransferMessage {
 	return EvmTransferMessage{
 		ToAddress:    toAddr,
 		TokenAddress: tokenAddr,

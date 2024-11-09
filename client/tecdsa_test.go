@@ -62,7 +62,7 @@ func TestECDSA(t *testing.T) {
 	address, err := o1.GetEvmAddress()
 
 	msg := NewEvmTransferMessage(
-		10, "100", "0xA21Ddd2F6Db2E1Bc5ee29fc714d78212C9793Dda", address, "100",
+		1, 1, "0x000000000000000000000000000000000000beef", "0x000000000000000000000000000000000000dead", "1",
 	)
 
 	msgHash, err := o1.CreateOrSignEvmMessage(msg)
@@ -86,10 +86,12 @@ func TestECDSA(t *testing.T) {
 		t.Fatalf("error signing message, %e", err)
 	}
 
+	fmt.Println("address", address)
 	fmt.Println("msg", msgHash)
-	sigHex := constructSignature(sig)
-	fmt.Println("sig", sigHex)
-	verified, err := verifyEvmSig(address, msgHash, sigHex)
+	// sigHex := constructSignature(sig)
+
+	fmt.Println("sig", sig)
+	verified, err := verifyEvmSig(address, msgHash, sig)
 	if err != nil {
 		t.Fatalf("error verifying signature, %e", err)
 	}
@@ -101,4 +103,5 @@ func setupCanister(a *agent.Agent, canisterID principal.Principal, signers []pri
 	err := a.Call(canisterID, "setup", []any{signers, threshold}, []any{&res})
 
 	return err
+
 }

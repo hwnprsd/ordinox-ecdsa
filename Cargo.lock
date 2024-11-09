@@ -74,6 +74,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "47ef9e96462d0b9fee9008c53c1f3d017b9498fcdef3ad8d728db98afef47955"
 dependencies = [
  "alloy-primitives",
+ "alloy-sol-types",
 ]
 
 [[package]]
@@ -2499,6 +2500,7 @@ dependencies = [
  "ic-cdk-timers",
  "ic-evm-utils",
  "k256",
+ "num-bigint",
  "serde",
  "sha2 0.10.8",
  "tokio",

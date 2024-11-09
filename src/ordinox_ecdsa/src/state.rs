@@ -1,11 +1,10 @@
-use alloy::primitives::{keccak256, Address, U256};
+use alloy::primitives::keccak256;
 use candid::{CandidType, Principal};
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
-
-use crate::sha256;
+use std::u128;
 
 #[derive(CandidType, Serialize, Deserialize, Clone, Debug)]
 pub(super) struct EvmTransferMessage {
@@ -13,31 +12,40 @@ pub(super) struct EvmTransferMessage {
     pub to_address: String,
     pub token_address: String,
     pub amount: String,
-    pub chain_id: String,
+    pub chain_id: u128,
     pub signature: Option<String>,
-    pub nonce: u64,
+    pub nonce: u128,
 }
 
 impl EvmTransferMessage {
-    pub fn encode(self) -> String {
-        let token_addr = Address::from_str(self.token_address.as_str()).unwrap();
-        let to_addr = Address::from_str(self.to_address.as_str()).unwrap();
-        let amt = U256::from_str(self.amount.as_str()).unwrap();
-        let nonce = U256::from(self.nonce);
-        let chain_id = U256::from_str(self.chain_id.as_str()).unwrap();
+    pub fn encode_packed(self) -> Vec<u8> {
+        let token_addr_bytes = hex::decode(&self.token_address.trim_start_matches("0x"))
+            .expect("Invalid token address");
+        let to_addr_bytes =
+            hex::decode(&self.to_address.trim_start_matches("0x")).expect("Invalid to address");
+        // Parse `amount` string into a 256-bit BigUint and convert it to a 32-byte array
+        let amt = num_bigint::BigUint::from_str(&self.amount).expect("Invalid amount format");
+        let mut amt_bytes = amt.to_bytes_be();
+        // Pad amount to 32 bytes if it's less than that
+        while amt_bytes.len() < 32 {
+            amt_bytes.insert(0, 0); // Pad with leading zeros
+        }
+
+        let chain_id_bytes = self.chain_id.to_be_bytes();
+        let nonce_bytes = self.nonce.to_be_bytes();
 
         let mut encoded: Vec<u8> = Vec::new();
-        encoded.extend_from_slice(&nonce.as_le_bytes());
-        encoded.extend_from_slice(&chain_id.as_le_bytes());
-        encoded.extend_from_slice(token_addr.as_slice());
-        encoded.extend_from_slice(to_addr.as_slice());
-        encoded.extend_from_slice(&amt.as_le_bytes());
+        encoded.extend_from_slice(&nonce_bytes);
+        encoded.extend_from_slice(&chain_id_bytes);
+        encoded.extend_from_slice(&token_addr_bytes);
+        encoded.extend_from_slice(&to_addr_bytes);
+        encoded.extend_from_slice(&amt_bytes);
 
-        keccak256(encoded).to_string()
+        keccak256(encoded).to_vec()
     }
 
     pub fn hash(self) -> String {
-        return self.encode();
+        return hex::encode(self.encode_packed());
     }
 }
 
@@ -59,4 +67,35 @@ pub(super) struct State {
 
 thread_local! {
     pub(super) static STATE: RefCell<State> = RefCell::new(State::default());
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_encode_function_logging() {
+        // Sample data for testing
+        let signers = vec![Principal::from_text("aaaaa-aa").unwrap()];
+        let to_address = "0x000000000000000000000000000000000000beef".to_string();
+        let token_address = "0x000000000000000000000000000000000000dead".to_string();
+        let amount = "1".to_string(); // 1 ETH in wei
+        let chain_id = 1; // Ethereum Mainnet
+        let nonce = 1;
+
+        // Create an instance of EvmTransferMessage
+        let message = EvmTransferMessage {
+            signers,
+            to_address,
+            token_address,
+            amount,
+            chain_id,
+            signature: None,
+            nonce,
+        };
+
+        // Log the encoded output
+        let encoded_output = message.hash();
+        println!("Encoded Output: {}", encoded_output);
+    }
 }

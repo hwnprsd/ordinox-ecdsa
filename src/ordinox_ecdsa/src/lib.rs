@@ -1,6 +1,5 @@
-use std::str::FromStr;
+use std::u128;
 
-use alloy::primitives::{Address, U256};
 use candid::Principal;
 use ic_cdk::api::management_canister::ecdsa::{ ecdsa_public_key, EcdsaCurve, EcdsaKeyId,  EcdsaPublicKeyArgument };
 use ic_cdk::{query, update};
@@ -41,16 +40,15 @@ async fn caller() -> Principal {
 }
 
 #[update]
-async fn create_or_sign_evm_message(nonce: u64, chain_id: String, token_address: String, to_address: String, amount: String) -> Result<String, String> {
-    Address::parse_checksummed(token_address.clone(), None).map_err(|_| format!("error parsing token address"))?;
-    Address::parse_checksummed(to_address.clone(), None).map_err(|_| format!("error parsing to address"))?;
-    U256::from_str(amount.as_str()).map_err(|_| format!("error parsing amount"))?;
-    U256::from_str(chain_id.as_str()).map_err(|_| format!("error parsing chain_id"))?;
+async fn create_or_sign_evm_message(nonce: u64, chain_id: u64, token_address: String, to_address: String, amount: String) -> Result<String, String> {
 
     let mut msg = EvmTransferMessage {
         signers: vec![], 
         signature: None, 
-        token_address, to_address, chain_id, amount, nonce,
+        token_address, to_address, 
+        nonce: u128::from(nonce), 
+        chain_id: u128::from(chain_id),
+        amount,
     };
 
     let caller = ic_cdk::caller();
@@ -102,7 +100,7 @@ async fn sign_message(id: String) -> Result<String, String> {
         .with(|state| state.borrow().messages.get(&id).cloned())
         .ok_or("Message not found")?;
 
-    let signature = evm::sign_evm_message(message.hash().as_bytes()).await?;
+    let signature = evm::sign_evm_message(message.encode_packed()).await?;
         STATE.with(|state| {
                 let mut s = state.borrow_mut();
                 if let Some(msg) = s.messages.get_mut(&id) {
@@ -124,7 +122,7 @@ fn get_signature(msg_id: String) -> String {
     })
 }
 
-fn sha256(input: &str) -> [u8; 32] {
+fn _sha256(input: &str) -> [u8; 32] {
     use sha2::Digest;
     let mut hasher = sha2::Sha256::new();
     hasher.update(input.as_bytes());

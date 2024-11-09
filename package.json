@@ -1,5 +1,5 @@
 {
-  "name": "threshold-ecdsa-test",
+  "name": "ordinox_ecdsa",
   "version": "0.1.0",
   "description": "Internet Computer starter application",
   "dependencies": {
