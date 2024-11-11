@@ -61,13 +61,28 @@ func constructSignature(sigRaw string) string {
 
 // Function to verify the EVM signature
 func verifyEvmSig(address, message string, sigHex string) (bool, error) {
-	signature, err := hex.DecodeString(sigHex)
+	signature, err := hex.DecodeString(strings.TrimPrefix(sigHex, "0x"))
 	if err != nil {
 		return false, fmt.Errorf("error decoding sigHex: %v", err)
 	}
 
-	prefixedMsg := fmt.Sprintf("\x19Ethereum Signed Message:\n%d%s", len(message), message)
+	msgB, err := hex.DecodeString(message)
+	if err != nil {
+		return false, fmt.Errorf("error decoding msgHex: %v", err)
+	}
+
+	prefixedMsg := fmt.Sprintf("\x19Ethereum Signed Message:\n%d%s", len(msgB), msgB)
 	hash := crypto.Keccak256Hash([]byte(prefixedMsg))
+
+	// Check signature length
+	if len(signature) != 65 {
+		return false, fmt.Errorf("invalid signature length: %d", len(signature))
+	}
+
+	// Handle 'v' value
+	if signature[64] == 27 || signature[64] == 28 {
+		signature[64] -= 27
+	}
 
 	// Recover public key from signature
 	publicKey, err := crypto.SigToPub(hash.Bytes(), signature)

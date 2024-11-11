@@ -86,11 +86,11 @@ func TestECDSA(t *testing.T) {
 		t.Fatalf("error signing message, %e", err)
 	}
 
-	fmt.Println("address", address)
-	fmt.Println("msg", msgHash)
+	fmt.Println("Address:", address)
+	fmt.Println("MessageHex:", msgHash)
 	// sigHex := constructSignature(sig)
 
-	fmt.Println("sig", sig)
+	fmt.Println("SigHex:", sig)
 	verified, err := verifyEvmSig(address, msgHash, sig)
 	if err != nil {
 		t.Fatalf("error verifying signature, %e", err)
