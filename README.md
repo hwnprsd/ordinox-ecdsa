@@ -24,8 +24,8 @@ Ensure you have the following installed:
 1. Clone the repository:
 
 ```bash
-git clone <repository-url>
-cd ordinox-ecdsa
+git clone https://github.com/hwnprsd/ordinox-ic-rust
+cd ordinox-ic-rust
 ```
 
 2. Install the Internet Computer SDK:
