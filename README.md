@@ -108,11 +108,3 @@ graph TD
 2. If Go tests fail:
    - Verify the Canister ID is correctly updated in the test file
    - Ensure all dependencies are installed
-
-## Contributing
-
-Please read our contributing guidelines before submitting pull requests.
-
-## License
-
-[Add License Information]
