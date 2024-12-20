@@ -2,7 +2,7 @@ use std::u128;
 
 use candid::Principal;
 use ic_cdk::api::management_canister::ecdsa::{ ecdsa_public_key, EcdsaCurve, EcdsaKeyId,  EcdsaPublicKeyArgument };
-use ic_cdk::{query, update};
+use ic_cdk::{println, query, update};
 use state::{STATE, State, EvmTransferMessage};
 
 mod evm;
@@ -38,6 +38,9 @@ fn setup(signers: Vec<Principal>, threshold: u32) -> String {
 async fn caller() -> Principal {
     ic_cdk::caller()
 }
+
+// TODO: Create a function for evm_swap message??
+// Or create a generic signing service
 
 #[update]
 async fn create_or_sign_evm_message(nonce: u64, chain_id: u64, token_address: String, to_address: String, amount: String) -> Result<String, String> {

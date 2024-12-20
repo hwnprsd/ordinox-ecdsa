@@ -3,7 +3,6 @@ pragma solidity 0.8.27;
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 
-
 // ERC20 Interface
 interface iERC20 {
     function balanceOf(address) external view returns (uint256);
@@ -26,6 +25,8 @@ contract RdnxRouter {
 
     // Vault allowance for each asset
     mapping(address => mapping(address => uint)) private _vaultAllowance;
+    mapping(uint => bool) private usedNonces;
+
 
     uint256 private constant _NOT_ENTERED = 1;
     uint256 private constant _ENTERED = 2;
@@ -89,6 +90,7 @@ contract RdnxRouter {
     // Note: Contract recipients of ETH are only given 2300 Gas to complete execution.
     function transferOut(address to, address asset, uint amount, string memory memo) public nonReentrant {
         uint safeAmount;
+        // check if vault allowance is valid
             _vaultAllowance[msg.sender][asset] -= amount; // Reduce allowance
             (bool success, bytes memory data) = asset.call(abi.encodeWithSignature("transfer(address,uint256)" , to, amount));
             require(success && (data.length == 0 || abi.decode(data, (bool))));
@@ -104,7 +106,7 @@ contract RdnxRouter {
         uint128 chainId, 
         uint128 nonce, 
         bytes calldata signature
-    ) public view returns (address recoveredAddress) {
+    ) public returns (address recoveredAddress) {
         bytes32 message = keccak256(
             abi.encodePacked(
                 nonce,
@@ -115,8 +117,14 @@ contract RdnxRouter {
             )
         );
 
+        // Ideally, the nonce should be a counter instead of this
+        require(!usedNonces[nonce], "nonce already used");
+
         bytes32 messageHash = MessageHashUtils.toEthSignedMessageHash(message);
         recoveredAddress = messageHash.recover(signature);
+        require(recoveredAddress == from, "Invalid sender");
+        transferOut(to, token, amount, "transfer with signature");
+        usedNonces[nonce] = true;
     }
 
     //############################## VAULT MANAGEMENT ##############################

@@ -28,7 +28,7 @@ describe("", function () {
         1,
         "0x2995502eab24b3093fc496c5b2740879fafe96be94b592ec9817568daab1f94d4399f6496118f845799b5f782dc4a66a9cc4656b02c249e12846b7b144a183241c"
       );
-      console.log(res);
+      console.log({ res });
     });
   });
 });

@@ -98,4 +98,17 @@ mod tests {
         let encoded_output = message.hash();
         println!("Encoded Output: {}", encoded_output);
     }
+
+    #[test]
+    fn test_logic() {
+        let mut x: u128 = 123;
+        let _ans1 = take_u128(&mut x);
+        let _ans2 = take_u128(&mut x);
+        println!("{}", x)
+    }
+
+    fn take_u128(val: &mut u128) -> String {
+        *val = *val + 1;
+        return "OK".to_string();
+    }
 }

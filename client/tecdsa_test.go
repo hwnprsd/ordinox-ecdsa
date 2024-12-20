@@ -45,9 +45,9 @@ func createIdentityFromPrivateKey(privateKey ed25519.PrivateKey) identity.Identi
 
 func TestECDSA(t *testing.T) {
 	canisterID, _ := principal.Decode(CANISTER_ID)
-	o1 := NewOrdinoxCanister(CANISTER_ID, privateKey1)
-	o2 := NewOrdinoxCanister(CANISTER_ID, privateKey2)
-	o3 := NewOrdinoxCanister(CANISTER_ID, privateKey3)
+	o1 := NewOrdinoxCanister(CANISTER_ID, privateKey1, RPC_LOCAL)
+	o2 := NewOrdinoxCanister(CANISTER_ID, privateKey2, RPC_LOCAL)
+	o3 := NewOrdinoxCanister(CANISTER_ID, privateKey3, RPC_LOCAL)
 
 	a, err := agent.New(config)
 	if err != nil {

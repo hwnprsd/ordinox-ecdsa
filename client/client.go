@@ -27,7 +27,7 @@ func decodeHex(s string) []byte {
 	return b
 }
 
-func NewOrdinoxCanister(id string, pkHex string) OrdinoxCanisterClient {
+func NewOrdinoxCanister(id, pkHex, rpcUrl string) OrdinoxCanisterClient {
 	var icpUrl, _ = url.Parse("http://localhost:4943")
 	canisterId, err := principal.Decode(id)
 	if err != nil {
