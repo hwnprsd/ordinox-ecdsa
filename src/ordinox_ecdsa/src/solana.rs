@@ -45,7 +45,6 @@ pub fn set_canister_ids(sol_rpc: String, basic_solana: String) -> Result<String,
 }
 
 // Initialize multisig
-#[update]
 pub fn init_solana_multisig(signers: Vec<Principal>, threshold: u32) -> Result<String, String> {
     if threshold == 0 || threshold as usize > signers.len() {
         return Err("Invalid threshold".to_string());
@@ -61,7 +60,6 @@ pub fn init_solana_multisig(signers: Vec<Principal>, threshold: u32) -> Result<S
 }
 
 // Get canister's Solana address using basic_solana
-#[update]
 pub async fn get_canister_solana_address() -> Result<String, String> {
     // Check cache first
     let cached = STATE.with(|state| state.borrow().canister_address.clone());
@@ -96,9 +94,7 @@ pub async fn get_canister_solana_address() -> Result<String, String> {
     }
 }
 
-// Get wallet balance
-#[update]
-pub async fn get_wallet_balance() -> Result<Nat, String> {
+pub async fn get_wallet_balance() -> Result<String, String> {
     let basic_solana_id = BASIC_SOLANA_ID.with(|id| id.borrow().clone());
     if basic_solana_id.is_empty() {
         return Err("Basic Solana ID not set".to_string());
@@ -114,10 +110,11 @@ pub async fn get_wallet_balance() -> Result<Nat, String> {
     ).await;
 
     match result {
-        Ok((balance,)) => Ok(balance),
-        Err((code, msg)) => Err(format!("Failed to get balance: {:?} - {}", code, msg))
+        Ok((balance,)) => Ok(balance.to_string()), 
+        Err((code, msg)) => Err(format!("Failed to get balance: {:?} - {}", code, msg)),
     }
 }
+
 
 // Request airdrop (for testing on devnet)
 #[update]
@@ -144,9 +141,9 @@ pub async fn request_airdrop() -> Result<String, String> {
     }
 }
 
-// Create or sign transaction
-#[update]
+
 pub async fn create_or_sign_solana_transaction(
+    msg_id: String,
     to_address: String,
     amount: String,  // Amount in SOL
 ) -> Result<String, String> {
@@ -155,14 +152,18 @@ pub async fn create_or_sign_solana_transaction(
     // Convert SOL to lamports
     let lamports = sol_amount_to_lamports(&amount)?;
 
-    // Create unique transaction ID
-    let msg_id = hash_message(&to_address, lamports);
+    // Use provided msg_id if not empty, otherwise generate new hash
+    let transaction_id = if msg_id.trim().is_empty() {
+        hash_message(&to_address, lamports)
+    } else {
+        msg_id
+    };
 
     // Check authorization and existence
     let (is_authorized, message_exists, threshold) = STATE.with(|state| {
         let s = state.borrow();
         let is_authorized = s.signers.contains(&caller);
-        let message_exists = s.transactions.contains_key(&msg_id);
+        let message_exists = s.transactions.contains_key(&transaction_id);
         (is_authorized, message_exists, s.threshold)
     });
 
@@ -178,7 +179,7 @@ pub async fn create_or_sign_solana_transaction(
 
         STATE.with(|state| {
             let mut s = state.borrow_mut();
-            s.transactions.insert(msg_id.clone(), TransactionRecord {
+            s.transactions.insert(transaction_id.clone(), TransactionRecord {
                 signers: vec![caller],
                 to_address: to_address.clone(),
                 lamports,
@@ -187,13 +188,13 @@ pub async fn create_or_sign_solana_transaction(
             });
         });
 
-        execute_solana_transaction(msg_id.clone()).await
+        execute_solana_transaction(transaction_id.clone()).await
     } else {
         // Multi-signer case
         if message_exists {
             let should_execute = STATE.with(|state| {
                 let mut s = state.borrow_mut();
-                let tx = s.transactions.get_mut(&msg_id).unwrap();
+                let tx = s.transactions.get_mut(&transaction_id).unwrap();
                 
                 if tx.executed {
                     return false;
@@ -207,19 +208,19 @@ pub async fn create_or_sign_solana_transaction(
             });
 
             if should_execute {
-                execute_solana_transaction(msg_id.clone()).await
+                execute_solana_transaction(transaction_id.clone()).await
             } else {
                 let signer_count = STATE.with(|s| 
-                    s.borrow().transactions.get(&msg_id).unwrap().signers.len()
+                    s.borrow().transactions.get(&transaction_id).unwrap().signers.len()
                 );
                 Ok(format!("Transaction {} signed. {}/{} signatures", 
-                    msg_id, signer_count, threshold))
+                    transaction_id, signer_count, threshold))
             }
         } else {
             // Create new transaction
             STATE.with(|state| {
                 let mut s = state.borrow_mut();
-                s.transactions.insert(msg_id.clone(), TransactionRecord {
+                s.transactions.insert(transaction_id.clone(), TransactionRecord {
                     signers: vec![caller],
                     to_address: to_address.clone(),
                     lamports,
@@ -227,7 +228,7 @@ pub async fn create_or_sign_solana_transaction(
                     tx_id: None,
                 });
             });
-            Ok(format!("Transaction {} created. 1/{} signatures", msg_id, threshold))
+            Ok(format!("Transaction {} created. 1/{} signatures", transaction_id, threshold))
         }
     }
 }

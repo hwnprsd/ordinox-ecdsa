@@ -13,15 +13,17 @@ ic-agent = "0.37.1"
 tokio = { version = "1.0", features = ["full"] }
 
 [dependencies]
-serde = "1"
 candid = "0.10"
 ic-cdk = "0.16"
 hex = "0.4.3"
 sha2 = "0.10.6"
-k256 = { version = "0.13.3", features = ["ecdsa"] }
+sha3 = "0.10"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+k256 = { version = "0.13.3", features = ["ecdsa", "sha256"] }
 # Enable `custom` feature of k256's getrandom dependency. See lib.rs for more details.
 getrandom = { version = "0.2", features = ["custom"] }
-alloy = { git = "https://github.com/ic-alloy/ic-alloy.git", default-features = false, branch = "icp", features = ["signer-icp", "sol-types"]}
+alloy = { git = "https://github.com/ic-alloy/ic-alloy.git", branch = "main" }
 ic-evm-utils = "3.2.0"
 ic-cdk-timers = "0.10.0"
-num-bigint = "0.4"
+ripemd = "0.1"
