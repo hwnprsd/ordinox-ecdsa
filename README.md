@@ -50,51 +50,8 @@ chain-key cryptography for secure multi-chain asset custody.
 
 ## Protocol Flow
 
-```mermaid
-sequenceDiagram
-    participant User
-    participant Sonic as Sonic Chain<br/>(ODX Protocol + xAssets)
-    participant Merchant as Merchant Network
-    participant CEX as External Liquidity<br/>(CEX/DEX)
-    participant ICP as ICP Canister<br/>(Chain-Key Custody)
-    participant Chains as Native Blockchains<br/>(ETH/SOL/XRP/ADA)
-    participant ODX_Net as ODX Network<br/>(Multi-Sig Signers)
-    participant Proofs as Off-Chain<br/>(Custody Proofs)
+<img width="4516" height="3590" alt="image" src="https://github.com/user-attachments/assets/b018f52c-9193-454d-bae2-48f92f3c69e2" />
 
-    rect rgb(200, 230, 255)
-        Note over User,Proofs: MINTING FLOW: User wants xETH
-        User->>Sonic: 1. Create partially signed order<br/>(Pay USDC for xETH)
-        Sonic->>Merchant: 2. Broadcast Dutch auction order
-        Merchant->>Merchant: 3. Evaluate profitability
-        Merchant->>CEX: 4. Procure native ETH
-        CEX-->>Merchant: 5. Deliver ETH
-        Merchant->>ICP: 6. Deposit ETH to canister address
-        ICP->>Chains: 7. Store ETH via chain-key cryptography
-        Note over ICP,Chains: ICP directly controls<br/>native blockchain addresses
-        Merchant->>Proofs: 8. Submit custody proof (public)
-        Merchant->>Sonic: 9. Complete order signature
-        Sonic->>Sonic: 10. Verify & mint xETH
-        Sonic->>User: 11. Transfer xETH to user
-        Sonic->>Merchant: 12. Transfer USDC payment
-    end
-
-    rect rgb(255, 220, 220)
-        Note over User,Proofs: BURNING FLOW: User exits xETH position
-        User->>Sonic: 1. Initiate burn of xETH
-        Sonic->>Merchant: 2. Broadcast burn order
-        Merchant->>Sonic: 3. Accept burn order
-        Sonic->>Sonic: 4. Burn xETH tokens
-        Sonic->>User: 5. Send USDC at market rate
-        Merchant->>ODX_Net: 6. Request withdrawal approval
-        ODX_Net->>ODX_Net: 7. Multi-sig consensus
-        ODX_Net->>ICP: 8. Approve withdrawal
-        ICP->>Chains: 9. Release ETH from custody
-        Chains-->>Merchant: 10. Withdraw native ETH
-        Merchant->>CEX: 11. Sell ETH for USDC
-    end
-
-    Note over User,Proofs: Key Features:<br/>✓ Gasless transactions via UniswapX Dutch Order v2<br/>✓ MEV protection through Dutch auction<br/>✓ Native asset custody via ICP chain-key cryptography<br/>✓ Public verification of 1:1 backing
-```
 
 ### Minting xAssets
 
