@@ -2,8 +2,8 @@
 
 ## Overview
 
-ODX is a blue-chip crypto wrapper protocol that enables users to gain exposure
-to major cryptocurrencies (ETH, SOL, XRP, ADA) through synthetic assets
+ODX is a blue-chip crypto mint-burn protocol that enables users and institutions to gain exposure
+to major cryptocurrencies (ETH, SOL, XRP, ADA, etc) through synthetic assets
 (xAssets) backed 1:1 by real assets held in secure custody. The protocol
 leverages Sonic's high-performance EVM chain for transaction execution and ICP's
 chain-key cryptography for secure multi-chain asset custody.
@@ -13,16 +13,16 @@ chain-key cryptography for secure multi-chain asset custody.
 ### 1. Sonic Chain Layer (EVM Component)
 
 - **xAsset Smart Contracts**: ERC-20 compatible wrapped assets (xETH, xSOL,
-  xXRP, xADA) deployed on Sonic
+  xXRP, xADA, etc) deployed on Sonic (and other supported chains)
 - **ODX Protocol Contracts**: Implementation of UniswapX Dutch Order v2 for
-  gasless, MEV-protected order fulfillment
+  gasless, MEV-resistant order fulfillment
 - **USDC Settlement**: Users pay and receive USDC on Sonic for minting and
   burning operations
 
 ### 2. ICP Custody Layer
 
 - **Chain-Key Cryptography**: Enables ICP canisters to directly control native
-  addresses on external blockchains (Bitcoin, Ethereum, Solana, Cardano, Ripple)
+  addresses on external blockchains (Bitcoin, Ethereum, Solana, Cardano, Ripple, etc.)
 - **Multi-Signature Canister**: Custodies all native assets with approval
   required from ODX Network Participants
 - **Cross-Chain Security**: Assets remain secure on their native chains while
@@ -33,7 +33,7 @@ chain-key cryptography for secure multi-chain asset custody.
 - **Order Fulfillment**: Merchants monitor and fulfill user orders via Dutch
   auction mechanism
 - **Asset Procurement**: Merchants source assets from CEXs, DEXs, or other
-  liquidity venues
+  liquidity venues providing deep, instant liqudity to users
 - **Custody Submission**: Merchants deposit procured assets to ICP
   canister-controlled addresses
 - **Proof Submission**: Merchants submit publicly verifiable proofs of custody
@@ -49,8 +49,9 @@ chain-key cryptography for secure multi-chain asset custody.
   movements
 
 ## Protocol Flow
+Using ETH as an example asset
 
-<img width="4516" height="3590" alt="image" src="https://github.com/user-attachments/assets/b018f52c-9193-454d-bae2-48f92f3c69e2" />
+![UMM-2025-10-09-161603](https://github.com/user-attachments/assets/ffac5869-ab43-4569-b642-d8b961bf596c)
 
 
 ### Minting xAssets
@@ -140,10 +141,13 @@ auditable, enabling community oversight of protocol solvency.
 ## Technical Stack
 
 - **Smart Contract Chain**: Sonic (high-performance EVM L1)
-- **Custody Infrastructure**: Internet Computer Protocol (ICP)
+- **Custody Infrastructure**: Internet Computer Protocol (ICP - Chain Key Cryptography for Decentralised Asset Custody)
 - **Order Protocol**: UniswapX Dutch Order v2 (custom implementation)
 - **Settlement Currency**: USDC
 - **Supported Assets**: ETH, SOL, XRP, ADA (with more planned)
+
+# Status
+Odx is currenly in mainnet alpha at [https://alpha.odx.so]. Please reach out to the team to request access.
 
 ---
 
