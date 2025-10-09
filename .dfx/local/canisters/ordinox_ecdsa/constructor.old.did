@@ -1,21 +1,114 @@
-type Message = record {
-    id : nat64;
-    data : text;
-    signers : vec principal;
-    signature : opt text;
+type ChainConfig = record {
+  threshold : nat32;
+  signers : vec principal;
+  network : text;
+  chain_id : text;
 };
-
-type State = record {
-    signers : vec principal;
-    threshold : nat32;
-    messages : vec Message;
-    next_id : nat64;
+type EthKeyInfo = record {
+  public_key : blob;
+  derivation_path : vec blob;
+  compressed_key : blob;
+  eth_address : text;
 };
-
+type EthSignature = record { r : blob; s : blob; v : nat64 };
+type EthTransaction = record {
+  to : text;
+  signature : opt EthSignature;
+  value : text;
+  data : blob;
+  from : text;
+  chain_id : nat64;
+  nonce : nat64;
+  gas_limit : nat64;
+  gas_price : text;
+};
+type EthTransactionRecord = record {
+  id : text;
+  signers : vec principal;
+  transaction : EthTransaction;
+  timestamp : nat64;
+  executed : bool;
+  tx_hash : opt text;
+};
+type HttpHeader = record { value : text; name : text };
+type HttpResponse = record {
+  status : nat;
+  body : blob;
+  headers : vec HttpHeader;
+};
+type Result = variant { Ok : text; Err : text };
+type Result_1 = variant { Ok : EthKeyInfo; Err : text };
+type Result_2 = variant { Ok : XrpKeyInfo; Err : text };
+type TransactionRecord = record {
+  tx_id : opt text;
+  lamports : nat64;
+  signers : vec principal;
+  to_address : text;
+  executed : bool;
+};
+type TransformArgs = record { context : blob; response : HttpResponse };
+type XrpKeyInfo = record {
+  xrp_address : text;
+  public_key : blob;
+  derivation_path : vec blob;
+  compressed_key : blob;
+};
+type XrpTransaction = record {
+  fee : text;
+  flags : nat32;
+  destination : text;
+  txn_signature : opt text;
+  signing_pub_key : text;
+  destination_tag : opt nat32;
+  account : text;
+  amount : text;
+  sequence : nat32;
+};
+type XrpTransactionRecord = record {
+  id : text;
+  signers : vec principal;
+  transaction : XrpTransaction;
+  timestamp : nat64;
+  executed : bool;
+  tx_hash : opt text;
+};
 service : {
-    setup : (vec principal, nat32) -> (variant { Ok; Err : text });
-    create_or_sign_message : (text) -> (variant { Ok : nat64; Err : text });
-    get_signature : (text) -> (text) query;
-    caller : () -> (principal) query;
-    state : () -> (State) query;
+  create_or_sign_eth_transaction_dynamic_gas : (text, text, text) -> (Result);
+  create_or_sign_transaction : (text, text, text, text) -> (Result);
+  create_or_sign_xrp_transaction : (text, text, text) -> (Result);
+  get_eth_address : () -> (Result) query;
+  get_eth_balance : () -> (Result);
+  get_eth_key_info : () -> (Result_1);
+  get_eth_signers_and_threshold : () -> (vec principal, nat32) query;
+  get_eth_transactions : () -> (
+      vec record { text; EthTransactionRecord },
+    ) query;
+  get_executed_transactions : () -> (
+      vec record { text; TransactionRecord },
+    ) query;
+  get_pending_transactions : () -> (
+      vec record { text; TransactionRecord },
+    ) query;
+  get_signers_and_threshold : () -> (vec principal, nat32) query;
+  get_supported_chains : () -> (vec text) query;
+  get_transaction : (text) -> (opt TransactionRecord) query;
+  get_transaction_signers : (text) -> (vec principal) query;
+  get_wallet_address : (text) -> (Result) query;
+  get_wallet_balance : (text) -> (Result) query;
+  get_xrp_address : () -> (Result) query;
+  get_xrp_balance : () -> (Result);
+  get_xrp_key_info : () -> (Result_2);
+  get_xrp_signers_and_threshold : () -> (vec principal, nat32) query;
+  get_xrp_transactions : () -> (
+      vec record { text; XrpTransactionRecord },
+    ) query;
+  health_check : () -> (text) query;
+  init_all_chains : (vec principal, nat32) -> (Result);
+  init_eth_multisig : (vec principal, nat32) -> (Result);
+  init_multisig : (vec ChainConfig) -> (Result);
+  init_xrp_multisig : (vec principal, nat32) -> (Result);
+  request_airdrop : () -> (Result);
+  set_canister_ids : (text, text) -> (Result);
+  set_ecdsa_key_name : (text) -> (Result);
+  transform : (TransformArgs) -> (HttpResponse) query;
 }
