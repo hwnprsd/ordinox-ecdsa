@@ -1,0 +1,21 @@
+type Message = record {
+    id : nat64;
+    data : text;
+    signers : vec principal;
+    signature : opt text;
+};
+
+type State = record {
+    signers : vec principal;
+    threshold : nat32;
+    messages : vec Message;
+    next_id : nat64;
+};
+
+service : {
+    setup : (vec principal, nat32) -> (variant { Ok; Err : text });
+    create_or_sign_message : (text) -> (variant { Ok : nat64; Err : text });
+    get_signature : (text) -> (text) query;
+    caller : () -> (principal) query;
+    state : () -> (State) query;
+}

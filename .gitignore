@@ -4,6 +4,8 @@ target/
 node_modules
 .env
 
+.dfx_old/
+
 
 # Hardhat files
 /cache

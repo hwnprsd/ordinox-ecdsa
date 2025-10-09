@@ -1,0 +1,23 @@
+[package]
+name = "ordinox_eddsa"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+candid = "0.10"
+ic-cdk = "0.17.2"
+ic-cdk-macros = "0.8"
+hex = "0.4"
+serde = { version = "1", features = ["derive"] }
+bs58 = "0.5"
+
+# Solana SDK with system program only
+solana-sdk = { version = "1.17.0", default-features = false, features = ["program"] }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
