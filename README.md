@@ -51,80 +51,49 @@ chain-key cryptography for secure multi-chain asset custody.
 ## Protocol Flow
 
 ```mermaid
-graph TB
-    subgraph User["👤 User"]
-        U[User Wallet]
-    end
-    
-    subgraph Sonic["🔷 SONIC CHAIN (EVM L1)"]
-        USDC[USDC Token]
-        xAssets[xAsset Contracts<br/>xETH, xSOL, xXRP, xADA]
-        ODX_Contract[ODX Protocol<br/>UniswapX Dutch Order v2]
-    end
-    
-    subgraph Merchant["🏪 Merchant Network"]
-        M[Merchant Operators]
-        CEX[CEX/DEX<br/>Liquidity Sources]
-    end
-    
-    subgraph ICP["🌐 INTERNET COMPUTER (ICP)"]
-        Canister[Multi-Sig Canister<br/>Chain-Key Cryptography]
-        ODX_Network[ODX Network Participants<br/>Multi-Sig Signers]
-    end
-    
-    subgraph External["⛓️ External Blockchains"]
-        ETH_Chain[Ethereum<br/>Native ETH]
-        SOL_Chain[Solana<br/>Native SOL]
-        XRP_Chain[Ripple<br/>Native XRP]
-        ADA_Chain[Cardano<br/>Native ADA]
-    end
-    
-    subgraph OffChain["📋 Off-Chain Infrastructure"]
-        Proofs[Public Custody Proofs<br/>Verification System]
-    end
-    
-    %% Minting Flow
-    U -->|"1. Place Order<br/>(Partial Signature + USDC)"| ODX_Contract
-    ODX_Contract -->|"2. Dutch Auction<br/>Order Broadcast"| M
-    M -->|"3. Procure Assets"| CEX
-    M -->|"4. Deposit Native Assets"| Canister
-    
-    Canister -->|"Chain-Key Control"| ETH_Chain
-    Canister -->|"Chain-Key Control"| SOL_Chain
-    Canister -->|"Chain-Key Control"| XRP_Chain
-    Canister -->|"Chain-Key Control"| ADA_Chain
-    
-    M -->|"5. Submit Custody Proof"| Proofs
-    M -->|"6. Complete Order Signature"| ODX_Contract
-    ODX_Contract -->|"7. Mint xAsset"| xAssets
-    xAssets -->|"8. Transfer xAsset"| U
-    ODX_Contract -->|"9. Pay USDC"| M
-    
-    %% Burning Flow (thicker dashed lines)
-    U -.->|"1. Burn Request"| ODX_Contract
-    ODX_Contract -.->|"2. Burn xAsset"| xAssets
-    M -.->|"3. Fulfill Burn"| ODX_Contract
-    ODX_Contract -.->|"4. Send USDC"| U
-    ODX_Network -.->|"5. Approve Withdrawal"| Canister
-    Canister -.->|"6. Release Native Asset"| M
-    M -.->|"7. Sell on Market"| CEX
-    
-    %% Security Layer
-    ODX_Network -->|"Multi-Sig Control"| Canister
-    
-    style Sonic fill:#0066FF,stroke:#003399,stroke-width:3px,color:#fff
-    style ICP fill:#29ABE2,stroke:#1a7db8,stroke-width:3px,color:#fff
-    style Canister fill:#29ABE2,stroke:#1a7db8,stroke-width:2px,color:#fff
-    style ODX_Network fill:#ff9933,stroke:#cc7700,stroke-width:2px,color:#000
-    style External fill:#2d2d2d,stroke:#1a1a1a,stroke-width:2px,color:#fff
-    style ODX_Contract fill:#0066FF,stroke:#003399,stroke-width:2px,color:#fff
-    style xAssets fill:#0066FF,stroke:#003399,stroke-width:2px,color:#fff
-    style Proofs fill:#90EE90,stroke:#4d994d,stroke-width:2px,color:#000
-    style User fill:#333,stroke:#000,stroke-width:2px,color:#fff
-    style Merchant fill:#555,stroke:#000,stroke-width:2px,color:#fff
-    style OffChain fill:#666,stroke:#000,stroke-width:2px,color:#fff
+sequenceDiagram
+    participant User
+    participant Sonic as Sonic Chain<br/>(ODX Protocol + xAssets)
+    participant Merchant as Merchant Network
+    participant CEX as External Liquidity<br/>(CEX/DEX)
+    participant ICP as ICP Canister<br/>(Chain-Key Custody)
+    participant Chains as Native Blockchains<br/>(ETH/SOL/XRP/ADA)
+    participant ODX_Net as ODX Network<br/>(Multi-Sig Signers)
+    participant Proofs as Off-Chain<br/>(Custody Proofs)
 
-    linkStyle default stroke:#333,stroke-width:2px
+    rect rgb(200, 230, 255)
+        Note over User,Proofs: MINTING FLOW: User wants xETH
+        User->>Sonic: 1. Create partially signed order<br/>(Pay USDC for xETH)
+        Sonic->>Merchant: 2. Broadcast Dutch auction order
+        Merchant->>Merchant: 3. Evaluate profitability
+        Merchant->>CEX: 4. Procure native ETH
+        CEX-->>Merchant: 5. Deliver ETH
+        Merchant->>ICP: 6. Deposit ETH to canister address
+        ICP->>Chains: 7. Store ETH via chain-key cryptography
+        Note over ICP,Chains: ICP directly controls<br/>native blockchain addresses
+        Merchant->>Proofs: 8. Submit custody proof (public)
+        Merchant->>Sonic: 9. Complete order signature
+        Sonic->>Sonic: 10. Verify & mint xETH
+        Sonic->>User: 11. Transfer xETH to user
+        Sonic->>Merchant: 12. Transfer USDC payment
+    end
+
+    rect rgb(255, 220, 220)
+        Note over User,Proofs: BURNING FLOW: User exits xETH position
+        User->>Sonic: 1. Initiate burn of xETH
+        Sonic->>Merchant: 2. Broadcast burn order
+        Merchant->>Sonic: 3. Accept burn order
+        Sonic->>Sonic: 4. Burn xETH tokens
+        Sonic->>User: 5. Send USDC at market rate
+        Merchant->>ODX_Net: 6. Request withdrawal approval
+        ODX_Net->>ODX_Net: 7. Multi-sig consensus
+        ODX_Net->>ICP: 8. Approve withdrawal
+        ICP->>Chains: 9. Release ETH from custody
+        Chains-->>Merchant: 10. Withdraw native ETH
+        Merchant->>CEX: 11. Sell ETH for USDC
+    end
+
+    Note over User,Proofs: Key Features:<br/>✓ Gasless transactions via UniswapX Dutch Order v2<br/>✓ MEV protection through Dutch auction<br/>✓ Native asset custody via ICP chain-key cryptography<br/>✓ Public verification of 1:1 backing
 ```
 
 ### Minting xAssets
