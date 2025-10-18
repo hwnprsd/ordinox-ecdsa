@@ -1,0 +1,58 @@
+1. DFX Installation set up:-  https://internetcomputer.org/docs/building-apps/getting-started/install
+
+2. Creating Identities :-  dfx identity create <identity-name>
+
+3.Listing Identities :-  dfx identity list
+
+4.Switching Identities;- dfx identity use <identity-name>
+# Example:
+dfx identity use alice
+
+5.Check Current Identity:- dfx identity whoami
+
+6.Get Principal ID
+    # Get principal of current identity
+    dfx identity get-principal
+
+    # Get principal of specific identity without switching
+    dfx identity get-principal --identity <identity-name>
+
+    # Example:
+    dfx identity get-principal --identity alice
+
+7.Get Account ID (for ICP transfers)
+    dfx ledger account-id
+
+    # Get account ID for specific identity
+    dfx ledger account-id --identity alice
+
+8.ICP Balance Commands
+    # Check balance of current identity
+    dfx ledger balance --network ic
+
+    # Check balance with specific identity
+    dfx ledger balance --identity alice
+
+    # Check balance of a specific account
+    dfx ledger balance <account-id>
+
+9.Convert ICP to Cycles (Create Canister)
+   dfx cycles convert --amount 1 --network ic
+
+
+10. Top Up Existing Canister with Cycles
+   dfx cycles top-up <canister-id> --amount 500000000000 --network ic
+
+
+11. Check Cycles Balance of Canister
+    # Check cycles balance in your cycles ledger
+    dfx cycles balance --network ic
+
+    # Example output:
+    # 5.234 TC (trillion cycles)
+
+    # Or check wallet cycles balance
+    dfx wallet balance
+
+12.Deploy Canister
+   dfx deploy --network ic
