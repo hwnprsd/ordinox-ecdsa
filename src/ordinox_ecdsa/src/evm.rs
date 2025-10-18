@@ -248,9 +248,7 @@ pub async fn estimate_eth_gas(
     data: &[u8],
 ) -> Result<u64, String> {
     let rpc_endpoints = vec![
-        "https://1rpc.io/eth",
-        "https://ethereum.publicnode.com",
-        "https://rpc.ankr.com/eth",
+      "https://eth-mainnet.g.alchemy.com/v2/l2yRk6wTEi_ilQ5R3Pbw0PIIu05PGgAD",
     ];
     
     let mut last_error = String::new();
@@ -546,9 +544,7 @@ fn convert_ecdsa_to_eth_signature(
 // Dynamic gas price with EIP-1559 support
 async fn query_eth_gas_price() -> Result<String, String> {
     let rpc_endpoints = vec![
-        "https://1rpc.io/eth",
-        "https://ethereum.publicnode.com", 
-        "https://rpc.ankr.com/eth",
+      "https://eth-mainnet.g.alchemy.com/v2/l2yRk6wTEi_ilQ5R3Pbw0PIIu05PGgAD",
     ];
     
     for rpc_url in rpc_endpoints {
@@ -756,10 +752,12 @@ pub async fn create_or_sign_eth_transaction_with_gas_estimation(
     
     let network_nonce = query_eth_nonce(&key_info.eth_address).await.unwrap_or(current_nonce);
 
-    let (transaction_exists, _) = ETH_STATE.with(|state| {
+    let transaction_exists = ETH_STATE.with(|state| {
         let s = state.borrow();
         let exists = s.transactions.contains_key(&msg_id);
-        (exists, exists)
+        ic_cdk::println!("Tx Record Details: signers={:?}, threshold={:?}, msg_id={},exists={}", 
+        s.signers, s.threshold,msg_id,exists);
+        exists
     });
 
     if threshold == 1 {
@@ -809,12 +807,17 @@ pub async fn create_or_sign_eth_transaction_with_gas_estimation(
                     tx.signers.push(caller);
                 }
                 
-                tx.signers.len() as u32 >= threshold
+                if tx.signers.len() as u32 >= threshold && !tx.executed {
+                    tx.executed = true;  // Set BEFORE releasing lock
+                    return true;
+                }
+    
+                false
             });
 
             if should_execute {
-                execute_eth_transaction(msg_id.clone()).await
-            } else {
+                execute_eth_transaction(msg_id.clone()).await   
+            } else {        
                 let signer_count = ETH_STATE.with(|s| 
                     s.borrow().transactions.get(&msg_id).unwrap().signers.len()
                 );
@@ -922,34 +925,9 @@ async fn execute_eth_transaction(transaction_id: String) -> Result<String, Strin
     Ok(format!("Ethereum transaction {} executed successfully. Hash: {}", transaction_id, submission_result))
 }
 
-// Submit transaction with retry logic
-async fn submit_eth_transaction_to_network(tx_hex: &str) -> Result<String, String> {
-    let rpc_endpoints = vec![
-        "https://1rpc.io/eth",
-        "https://ethereum.publicnode.com",
-        "https://rpc.ankr.com/eth",
-    ];
-    
-    let mut last_error = String::new();
-    
-    for rpc_url in rpc_endpoints {
-        match submit_to_single_eth_endpoint(rpc_url, tx_hex).await {
-            Ok(result) => {
-                ic_cdk::println!("Transaction submitted successfully via {}", rpc_url);
-                return Ok(result);
-            },
-            Err(e) => {
-                last_error = format!("Failed with {}: {}", rpc_url, e);
-                ic_cdk::println!("RPC endpoint failed: {}", last_error);
-                continue;
-            }
-        }
-    }
-    
-    Err(format!("All Ethereum RPC endpoints failed. Last error: {}", last_error))
-}
 
-async fn submit_to_single_eth_endpoint(rpc_url: &str, tx_hex: &str) -> Result<String, String> {
+async fn submit_eth_transaction_to_network( tx_hex: &str) -> Result<String, String> {
+    let rpc_url = "https://eth-mainnet.g.alchemy.com/v2/l2yRk6wTEi_ilQ5R3Pbw0PIIu05PGgAD";
     let submit_request = json!({
         "method": "eth_sendRawTransaction",
         "params": [tx_hex],
@@ -996,7 +974,7 @@ async fn submit_to_single_eth_endpoint(rpc_url: &str, tx_hex: &str) -> Result<St
 
 // Utility functions for querying network state
 pub async fn query_eth_nonce(address: &str) -> Result<u64, String> {
-    let rpc_url = "https://1rpc.io/eth";
+    let rpc_url = "https://eth-mainnet.g.alchemy.com/v2/l2yRk6wTEi_ilQ5R3Pbw0PIIu05PGgAD";
     
     let nonce_request = json!({
         "method": "eth_getTransactionCount",
@@ -1033,6 +1011,7 @@ pub async fn query_eth_nonce(address: &str) -> Result<u64, String> {
         if let Some(nonce_hex) = result.as_str() {
             let nonce = u64::from_str_radix(nonce_hex.strip_prefix("0x").unwrap_or(nonce_hex), 16)
                 .map_err(|_| "Failed to parse nonce")?;
+              ic_cdk::println!("Nonce:={}",nonce);
             return Ok(nonce);
         }
     }
@@ -1041,7 +1020,7 @@ pub async fn query_eth_nonce(address: &str) -> Result<u64, String> {
 }
 
 async fn query_eth_balance(address: &str) -> Result<String, String> {
-    let rpc_url = "https://1rpc.io/eth";
+    let rpc_url = "https://eth-mainnet.g.alchemy.com/v2/l2yRk6wTEi_ilQ5R3Pbw0PIIu05PGgAD";
     
     let balance_request = json!({
         "method": "eth_getBalance",

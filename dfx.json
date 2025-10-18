@@ -4,10 +4,6 @@
       "candid": "src/ordinox_ecdsa/ordinox_ecdsa.did",
       "package": "ordinox_ecdsa",
       "type": "rust"
-    },
-    "evm_rpc": {
-      "type": "pull",
-      "id": "7hfb6-caaaa-aaaar-qadga-cai"
     }
   }
 }

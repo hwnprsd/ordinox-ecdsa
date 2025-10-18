@@ -89,9 +89,6 @@ async fn get_wallet_address(chain: String) -> Result<String, String> {
      match chain.as_str() {
         "solana" => solana::get_canister_solana_address().await,
         "evm" => evm::get_eth_address().await,
-
-
-
         _ => Err("Unsupported chain".to_string()),
     }
 }

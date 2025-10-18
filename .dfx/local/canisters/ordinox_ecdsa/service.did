@@ -93,8 +93,8 @@ service : {
   get_supported_chains : () -> (vec text) query;
   get_transaction : (text) -> (opt TransactionRecord) query;
   get_transaction_signers : (text) -> (vec principal) query;
-  get_wallet_address : (text) -> (Result) query;
-  get_wallet_balance : (text) -> (Result) query;
+  get_wallet_address : (text) -> (Result);
+  get_wallet_balance : (text) -> (Result);
   get_xrp_address : () -> (Result) query;
   get_xrp_balance : () -> (Result);
   get_xrp_key_info : () -> (Result_2);
