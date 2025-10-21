@@ -2,7 +2,7 @@ mod solana;
 mod state;
 mod xrp;
 mod evm;
-
+mod balance;
 
 use candid::{CandidType, Principal};
 use ic_cdk::{init,query, update};
@@ -13,6 +13,7 @@ use ic_cdk::api::management_canister::http_request::HttpResponse;
 pub use xrp::{XrpKeyInfo, XrpTransactionRecord, XrpTransaction};
 pub use evm::{EthKeyInfo, EthTransactionRecord, EthTransaction};
 use candid::Nat;
+use balance::BalanceInfo;
 
 
 #[derive(CandidType, Serialize, Deserialize, Clone, Debug)]
@@ -101,6 +102,17 @@ async fn get_wallet_balance(chain: String) -> Result<String, String> {
 
         _ => Err("Unsupported chain".to_string()),
     }
+}
+
+#[update]
+async fn check_ledger_balance() -> Result<BalanceInfo, String> {
+    let caller = ic_cdk::caller();
+    balance::get_balance_info(caller).await
+}
+
+#[query]
+fn get_cycles() -> u128 {
+    balance::get_cycles()
 }
 
 
