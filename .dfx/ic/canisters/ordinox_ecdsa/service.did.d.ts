@@ -2,6 +2,11 @@ import type { Principal } from '@dfinity/principal';
 import type { ActorMethod } from '@dfinity/agent';
 import type { IDL } from '@dfinity/candid';
 
+export interface BalanceInfo {
+  'account_id' : string,
+  'icp_e8s' : bigint,
+  'cycles' : bigint,
+}
 export interface ChainConfig {
   'threshold' : number,
   'signers' : Array<Principal>,
@@ -44,11 +49,13 @@ export interface HttpResponse {
   'body' : Uint8Array | number[],
   'headers' : Array<HttpHeader>,
 }
-export type Result = { 'Ok' : string } |
+export type Result = { 'Ok' : BalanceInfo } |
   { 'Err' : string };
-export type Result_1 = { 'Ok' : EthKeyInfo } |
+export type Result_1 = { 'Ok' : string } |
   { 'Err' : string };
-export type Result_2 = { 'Ok' : XrpKeyInfo } |
+export type Result_2 = { 'Ok' : EthKeyInfo } |
+  { 'Err' : string };
+export type Result_3 = { 'Ok' : XrpKeyInfo } |
   { 'Err' : string };
 export interface TransactionRecord {
   'tx_id' : [] | [string],
@@ -87,21 +94,23 @@ export interface XrpTransactionRecord {
   'tx_hash' : [] | [string],
 }
 export interface _SERVICE {
+  'check_ledger_balance' : ActorMethod<[string], Result>,
   'create_or_sign_eth_transaction_dynamic_gas' : ActorMethod<
     [string, string, string],
-    Result
+    Result_1
   >,
   'create_or_sign_transaction' : ActorMethod<
     [string, string, string, string],
-    Result
+    Result_1
   >,
   'create_or_sign_xrp_transaction' : ActorMethod<
     [string, string, string],
-    Result
+    Result_1
   >,
-  'get_eth_address' : ActorMethod<[], Result>,
-  'get_eth_balance' : ActorMethod<[], Result>,
-  'get_eth_key_info' : ActorMethod<[], Result_1>,
+  'get_cycles' : ActorMethod<[], bigint>,
+  'get_eth_address' : ActorMethod<[], Result_1>,
+  'get_eth_balance' : ActorMethod<[], Result_1>,
+  'get_eth_key_info' : ActorMethod<[], Result_2>,
   'get_eth_signers_and_threshold' : ActorMethod<[], [Array<Principal>, number]>,
   'get_eth_transactions' : ActorMethod<
     [],
@@ -119,24 +128,24 @@ export interface _SERVICE {
   'get_supported_chains' : ActorMethod<[], Array<string>>,
   'get_transaction' : ActorMethod<[string], [] | [TransactionRecord]>,
   'get_transaction_signers' : ActorMethod<[string], Array<Principal>>,
-  'get_wallet_address' : ActorMethod<[string], Result>,
-  'get_wallet_balance' : ActorMethod<[string], Result>,
-  'get_xrp_address' : ActorMethod<[], Result>,
-  'get_xrp_balance' : ActorMethod<[], Result>,
-  'get_xrp_key_info' : ActorMethod<[], Result_2>,
+  'get_wallet_address' : ActorMethod<[string], Result_1>,
+  'get_wallet_balance' : ActorMethod<[string], Result_1>,
+  'get_xrp_address' : ActorMethod<[], Result_1>,
+  'get_xrp_balance' : ActorMethod<[], Result_1>,
+  'get_xrp_key_info' : ActorMethod<[], Result_3>,
   'get_xrp_signers_and_threshold' : ActorMethod<[], [Array<Principal>, number]>,
   'get_xrp_transactions' : ActorMethod<
     [],
     Array<[string, XrpTransactionRecord]>
   >,
   'health_check' : ActorMethod<[], string>,
-  'init_all_chains' : ActorMethod<[Array<Principal>, number], Result>,
-  'init_eth_multisig' : ActorMethod<[Array<Principal>, number], Result>,
-  'init_multisig' : ActorMethod<[Array<ChainConfig>], Result>,
-  'init_xrp_multisig' : ActorMethod<[Array<Principal>, number], Result>,
-  'request_airdrop' : ActorMethod<[], Result>,
-  'set_canister_ids' : ActorMethod<[string, string], Result>,
-  'set_ecdsa_key_name' : ActorMethod<[string], Result>,
+  'init_all_chains' : ActorMethod<[Array<Principal>, number], Result_1>,
+  'init_eth_multisig' : ActorMethod<[Array<Principal>, number], Result_1>,
+  'init_multisig' : ActorMethod<[Array<ChainConfig>], Result_1>,
+  'init_xrp_multisig' : ActorMethod<[Array<Principal>, number], Result_1>,
+  'request_airdrop' : ActorMethod<[], Result_1>,
+  'set_canister_ids' : ActorMethod<[string, string], Result_1>,
+  'set_ecdsa_key_name' : ActorMethod<[string], Result_1>,
   'transform' : ActorMethod<[TransformArgs], HttpResponse>,
 }
 export declare const idlFactory: IDL.InterfaceFactory;

@@ -16,7 +16,7 @@ class ICService {
     this.signatories = [];
     this.threshold = config.ic.threshold || 2;
     this.initialized = false;
-    this.supportedChains = ['solana', 'xrp', 'evm'];
+    this.supportedChains = ['solana', 'xrp', 'evm','cardano'];
   }
 
   async initialize() {

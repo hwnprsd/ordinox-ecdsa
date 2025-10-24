@@ -1,8 +1,7 @@
 [package]
 name = "ordinox_ecdsa"
 version = "0.1.0"
-authors = ["ash@ordinox.xyz"]
-edition = "2018"
+edition = "2021"
 
 [lib]
 path = "src/lib.rs"
@@ -15,6 +14,7 @@ tokio = { version = "1.0", features = ["full"] }
 [dependencies]
 candid = "0.10"
 ic-cdk = "0.16"
+ic-cdk-macros = "0.16"
 hex = "0.4.3"
 sha2 = "0.10.6"
 sha3 = "0.10"
@@ -27,3 +27,7 @@ alloy = { git = "https://github.com/ic-alloy/ic-alloy.git", branch = "main" }
 ic-evm-utils = "3.2.0"
 ic-cdk-timers = "0.10.0"
 ripemd = "0.1"
+bech32 = "0.9"
+ciborium = "0.2"
+serde_cbor = "0.11"
+blake2 = "0.10"

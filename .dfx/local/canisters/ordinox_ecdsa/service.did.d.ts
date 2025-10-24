@@ -13,6 +13,13 @@ export interface ChainConfig {
   'network' : string,
   'chain_id' : string,
 }
+export interface ConfigInfo {
+  'threshold' : number,
+  'signers' : Array<Principal>,
+  'network' : Network,
+  'address' : [] | [string],
+  'ecdsa_key' : string,
+}
 export interface EthKeyInfo {
   'public_key' : Uint8Array | number[],
   'derivation_path' : Array<Uint8Array | number[]>,
@@ -49,13 +56,17 @@ export interface HttpResponse {
   'body' : Uint8Array | number[],
   'headers' : Array<HttpHeader>,
 }
+export type Network = { 'Preprod' : null } |
+  { 'Mainnet' : null };
 export type Result = { 'Ok' : BalanceInfo } |
   { 'Err' : string };
 export type Result_1 = { 'Ok' : string } |
   { 'Err' : string };
-export type Result_2 = { 'Ok' : EthKeyInfo } |
+export type Result_2 = { 'Ok' : TransactionRecord } |
   { 'Err' : string };
-export type Result_3 = { 'Ok' : XrpKeyInfo } |
+export type Result_3 = { 'Ok' : EthKeyInfo } |
+  { 'Err' : string };
+export type Result_4 = { 'Ok' : XrpKeyInfo } |
   { 'Err' : string };
 export interface TransactionRecord {
   'tx_id' : [] | [string],
@@ -94,7 +105,11 @@ export interface XrpTransactionRecord {
   'tx_hash' : [] | [string],
 }
 export interface _SERVICE {
-  'check_ledger_balance' : ActorMethod<[], Result>,
+  'check_ledger_balance' : ActorMethod<[string], Result>,
+  'create_or_sign_cardano_transaction' : ActorMethod<
+    [string, string, string],
+    Result_1
+  >,
   'create_or_sign_eth_transaction_dynamic_gas' : ActorMethod<
     [string, string, string],
     Result_1
@@ -107,10 +122,15 @@ export interface _SERVICE {
     [string, string, string],
     Result_1
   >,
+  'get_all_transactions' : ActorMethod<[], Array<[string, TransactionRecord]>>,
+  'get_balance' : ActorMethod<[], Result_1>,
+  'get_cardano_address' : ActorMethod<[], Result_1>,
+  'get_cardano_transaction' : ActorMethod<[string], Result_2>,
+  'get_config' : ActorMethod<[], ConfigInfo>,
   'get_cycles' : ActorMethod<[], bigint>,
   'get_eth_address' : ActorMethod<[], Result_1>,
   'get_eth_balance' : ActorMethod<[], Result_1>,
-  'get_eth_key_info' : ActorMethod<[], Result_2>,
+  'get_eth_key_info' : ActorMethod<[], Result_3>,
   'get_eth_signers_and_threshold' : ActorMethod<[], [Array<Principal>, number]>,
   'get_eth_transactions' : ActorMethod<
     [],
@@ -132,7 +152,7 @@ export interface _SERVICE {
   'get_wallet_balance' : ActorMethod<[string], Result_1>,
   'get_xrp_address' : ActorMethod<[], Result_1>,
   'get_xrp_balance' : ActorMethod<[], Result_1>,
-  'get_xrp_key_info' : ActorMethod<[], Result_3>,
+  'get_xrp_key_info' : ActorMethod<[], Result_4>,
   'get_xrp_signers_and_threshold' : ActorMethod<[], [Array<Principal>, number]>,
   'get_xrp_transactions' : ActorMethod<
     [],

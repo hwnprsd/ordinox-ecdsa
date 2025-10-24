@@ -89,3 +89,16 @@ pub async fn get_balance_info(principal: Principal) -> Result<BalanceInfo, Strin
         account_id: account_id_hex,
     })
 }
+
+/// Get both cycles and ICP balance for a specific account ID (hex string)
+pub async fn get_balance(account_id_hex: String) -> Result<BalanceInfo, String> {
+    let cycles = canister_balance128();
+    let account_id = hex_to_account_id(&account_id_hex)?;
+    let icp_e8s = query_ledger_balance(account_id).await?;
+    
+    Ok(BalanceInfo {
+        cycles,
+        icp_e8s,
+        account_id: account_id_hex,
+    })
+}

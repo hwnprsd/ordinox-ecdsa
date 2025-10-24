@@ -6,13 +6,29 @@ export const idlFactory = ({ IDL }) => {
   });
   const Result = IDL.Variant({ 'Ok' : BalanceInfo, 'Err' : IDL.Text });
   const Result_1 = IDL.Variant({ 'Ok' : IDL.Text, 'Err' : IDL.Text });
+  const TransactionRecord = IDL.Record({
+    'tx_id' : IDL.Opt(IDL.Text),
+    'lamports' : IDL.Nat64,
+    'signers' : IDL.Vec(IDL.Principal),
+    'to_address' : IDL.Text,
+    'executed' : IDL.Bool,
+  });
+  const Result_2 = IDL.Variant({ 'Ok' : TransactionRecord, 'Err' : IDL.Text });
+  const Network = IDL.Variant({ 'Preprod' : IDL.Null, 'Mainnet' : IDL.Null });
+  const ConfigInfo = IDL.Record({
+    'threshold' : IDL.Nat32,
+    'signers' : IDL.Vec(IDL.Principal),
+    'network' : Network,
+    'address' : IDL.Opt(IDL.Text),
+    'ecdsa_key' : IDL.Text,
+  });
   const EthKeyInfo = IDL.Record({
     'public_key' : IDL.Vec(IDL.Nat8),
     'derivation_path' : IDL.Vec(IDL.Vec(IDL.Nat8)),
     'compressed_key' : IDL.Vec(IDL.Nat8),
     'eth_address' : IDL.Text,
   });
-  const Result_2 = IDL.Variant({ 'Ok' : EthKeyInfo, 'Err' : IDL.Text });
+  const Result_3 = IDL.Variant({ 'Ok' : EthKeyInfo, 'Err' : IDL.Text });
   const EthSignature = IDL.Record({
     'r' : IDL.Vec(IDL.Nat8),
     's' : IDL.Vec(IDL.Nat8),
@@ -37,20 +53,13 @@ export const idlFactory = ({ IDL }) => {
     'executed' : IDL.Bool,
     'tx_hash' : IDL.Opt(IDL.Text),
   });
-  const TransactionRecord = IDL.Record({
-    'tx_id' : IDL.Opt(IDL.Text),
-    'lamports' : IDL.Nat64,
-    'signers' : IDL.Vec(IDL.Principal),
-    'to_address' : IDL.Text,
-    'executed' : IDL.Bool,
-  });
   const XrpKeyInfo = IDL.Record({
     'xrp_address' : IDL.Text,
     'public_key' : IDL.Vec(IDL.Nat8),
     'derivation_path' : IDL.Vec(IDL.Vec(IDL.Nat8)),
     'compressed_key' : IDL.Vec(IDL.Nat8),
   });
-  const Result_3 = IDL.Variant({ 'Ok' : XrpKeyInfo, 'Err' : IDL.Text });
+  const Result_4 = IDL.Variant({ 'Ok' : XrpKeyInfo, 'Err' : IDL.Text });
   const XrpTransaction = IDL.Record({
     'fee' : IDL.Text,
     'flags' : IDL.Nat32,
@@ -87,7 +96,12 @@ export const idlFactory = ({ IDL }) => {
     'response' : HttpResponse,
   });
   return IDL.Service({
-    'check_ledger_balance' : IDL.Func([], [Result], []),
+    'check_ledger_balance' : IDL.Func([IDL.Text], [Result], []),
+    'create_or_sign_cardano_transaction' : IDL.Func(
+        [IDL.Text, IDL.Text, IDL.Text],
+        [Result_1],
+        [],
+      ),
     'create_or_sign_eth_transaction_dynamic_gas' : IDL.Func(
         [IDL.Text, IDL.Text, IDL.Text],
         [Result_1],
@@ -103,10 +117,19 @@ export const idlFactory = ({ IDL }) => {
         [Result_1],
         [],
       ),
+    'get_all_transactions' : IDL.Func(
+        [],
+        [IDL.Vec(IDL.Tuple(IDL.Text, TransactionRecord))],
+        ['query'],
+      ),
+    'get_balance' : IDL.Func([], [Result_1], []),
+    'get_cardano_address' : IDL.Func([], [Result_1], []),
+    'get_cardano_transaction' : IDL.Func([IDL.Text], [Result_2], ['query']),
+    'get_config' : IDL.Func([], [ConfigInfo], ['query']),
     'get_cycles' : IDL.Func([], [IDL.Nat], ['query']),
     'get_eth_address' : IDL.Func([], [Result_1], ['query']),
     'get_eth_balance' : IDL.Func([], [Result_1], []),
-    'get_eth_key_info' : IDL.Func([], [Result_2], []),
+    'get_eth_key_info' : IDL.Func([], [Result_3], []),
     'get_eth_signers_and_threshold' : IDL.Func(
         [],
         [IDL.Vec(IDL.Principal), IDL.Nat32],
@@ -147,7 +170,7 @@ export const idlFactory = ({ IDL }) => {
     'get_wallet_balance' : IDL.Func([IDL.Text], [Result_1], []),
     'get_xrp_address' : IDL.Func([], [Result_1], ['query']),
     'get_xrp_balance' : IDL.Func([], [Result_1], []),
-    'get_xrp_key_info' : IDL.Func([], [Result_3], []),
+    'get_xrp_key_info' : IDL.Func([], [Result_4], []),
     'get_xrp_signers_and_threshold' : IDL.Func(
         [],
         [IDL.Vec(IDL.Principal), IDL.Nat32],

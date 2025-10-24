@@ -3,6 +3,7 @@ mod state;
 mod xrp;
 mod evm;
 mod balance;
+mod cardano;
 
 use candid::{CandidType, Principal};
 use ic_cdk::{init,query, update};
@@ -14,6 +15,7 @@ pub use xrp::{XrpKeyInfo, XrpTransactionRecord, XrpTransaction};
 pub use evm::{EthKeyInfo, EthTransactionRecord, EthTransaction};
 use candid::Nat;
 use balance::BalanceInfo;
+use cardano::ConfigInfo;
 
 
 #[derive(CandidType, Serialize, Deserialize, Clone, Debug)]
@@ -44,6 +46,11 @@ async fn init_multisig(configs: Vec<ChainConfig>) -> Result<String, String> {
                 evm::get_eth_key_info(); //Important to generate key info during initialization
                 results.push("EVM initialized".to_string());
             },
+            "cardano" => {
+                cardano::init_cardano_multisig(config.signers,config.threshold)?;
+                results.push("Cardano initialized".to_string());
+
+            }
             _ => return Err(format!("Unknown chain: {}", config.chain_id))
         }
     }
@@ -70,6 +77,7 @@ async fn create_or_sign_transaction(chain: String,msg_id: String,to_address: Str
         "solana" => solana::create_or_sign_solana_transaction(msg_id,to_address,amount).await,
         "xrp" => xrp::create_or_sign_xrp_transaction(msg_id,to_address,amount).await,
         "evm" => evm::create_or_sign_eth_transaction(msg_id,to_address,amount).await,
+        "cardano" => cardano::create_or_sign_cardano_transaction(msg_id,to_address,amount).await,
 
         _ => Err("Unsupported chain".to_string()),
     }
@@ -82,6 +90,7 @@ fn get_supported_chains() -> Vec<String> {
         "solana".to_string(),
         "xrp".to_string(),
         "evm".to_string(),
+        "cardano".to_string(),
     ]
 }
 
@@ -90,6 +99,7 @@ async fn get_wallet_address(chain: String) -> Result<String, String> {
      match chain.as_str() {
         "solana" => solana::get_canister_solana_address().await,
         "evm" => evm::get_eth_address().await,
+        "cardano" => cardano::get_cardano_address().await,
         _ => Err("Unsupported chain".to_string()),
     }
 }
@@ -99,19 +109,18 @@ async fn get_wallet_balance(chain: String) -> Result<String, String> {
       match chain.as_str() {
         "solana" => solana::get_wallet_balance().await,
         "evm" => evm::get_eth_balance().await,
-
+        "cardano" => cardano::get_balance().await,
         _ => Err("Unsupported chain".to_string()),
     }
 }
 
 #[update]
-async fn check_ledger_balance() -> Result<BalanceInfo, String> {
-    let caller = ic_cdk::caller();
-    balance::get_balance_info(caller).await
+async fn check_ledger_balance(account_id_hex: String) -> Result<BalanceInfo, String> {
+    balance::get_balance(account_id_hex).await
 }
 
 #[query]
-fn get_cycles() -> u128 {
+async fn get_cycles() -> u128 {
     balance::get_cycles()
 }
 
