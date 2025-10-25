@@ -15,7 +15,6 @@ pub use xrp::{XrpKeyInfo, XrpTransactionRecord, XrpTransaction};
 pub use evm::{EthKeyInfo, EthTransactionRecord, EthTransaction};
 use candid::Nat;
 use balance::BalanceInfo;
-use cardano::ConfigInfo;
 
 
 #[derive(CandidType, Serialize, Deserialize, Clone, Debug)]

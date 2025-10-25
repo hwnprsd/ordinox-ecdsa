@@ -1,168 +1,245 @@
-use candid::{CandidType, Deserialize, Principal};
-use ic_cdk::{api, caller, query, update};
-use ic_cdk::api::management_canister::ecdsa::{
-    ecdsa_public_key, sign_with_ecdsa, EcdsaCurve, EcdsaKeyId, 
-    EcdsaPublicKeyArgument, EcdsaPublicKeyResponse, SignWithEcdsaArgument, SignWithEcdsaResponse,
-};
-use ic_cdk::api::management_canister::http_request::{
-    http_request, CanisterHttpRequestArgument, HttpHeader, HttpMethod, HttpResponse, TransformArgs,
-};
-use serde::{Serialize, Deserialize as SerdeDeserialize};
-use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
+use ic_cdk::api::{self, call::call, caller};
+use ic_cdk::api::management_canister::http_request::{http_request, CanisterHttpRequestArgument, HttpMethod, HttpHeader, HttpResponse, TransformContext};
+use ic_cdk_macros::{update, query, pre_upgrade, post_upgrade};
+use serde::{Deserialize, Serialize};
+use serde_cbor::Value;
+use blake2::{Blake2b, Digest};
+use bech32::{self, ToBase32, Variant, FromBase32};
+use std::collections::BTreeMap;
 use std::cell::RefCell;
-use std::collections::HashMap;
-use hex;
-use bech32::{ToBase32, Variant, FromBase32};
-use serde_cbor;
+use candid::{CandidType, Principal};
+use serde_json::from_str;
+use ic_cdk::api::call::call_with_payment128;
 
 
+thread_local! {
+    static STATE: RefCell<StableState> = RefCell::new(StableState::default());
+}
 
-// ==================== Constants ====================
-
-const ECDSA_KEY_NAME: &str = "key_1";
+const SCHNORR_KEY_NAME: &str = "key_1";
 const BLOCKFROST_PREPROD: &str = "https://cardano-preprod.blockfrost.io/api/v0";
 const BLOCKFROST_MAINNET: &str = "https://cardano-mainnet.blockfrost.io/api/v0";
-const BLOCKFROST_API_KEY: &str  = "mainnetThVxLHKeXzlk3bMlYNzTRJyAYqO8zcPu";
 
-// ==================== Types ====================
 
-#[derive(Clone, Debug, CandidType, Serialize, Deserialize, PartialEq)]
-pub enum Network {
-    Mainnet,
-    Preprod,
-}
+const CYCLES_FOR_SCHNORR_PUBLIC_KEY: u128 = 10_000_000_000; // 10 billion cycles
+const CYCLES_FOR_SIGN_WITH_SCHNORR: u128 = 27_000_000_000; // 20 billion cycles
+
+
+const LOVELACE_PER_ADA: u64 = 1_000_000;
 
 #[derive(Clone, Debug, CandidType, Serialize, Deserialize)]
-pub struct CardanoKeyInfo {
-    pub public_key: Vec<u8>,
-    pub cardano_address: String,
-    pub derivation_path: Vec<Vec<u8>>,
-}
-
-#[derive(Clone, Debug, CandidType, Serialize, Deserialize)]
-pub struct UTXO {
-    pub tx_hash: String,
-    pub output_index: u32,
-    pub amount: u64,
-}
-
-#[derive(Clone, Debug, CandidType, Serialize, Deserialize)]
-pub struct TransactionRecord {
-    pub id: String,
-    pub to_address: String,
-    pub amount: u64,
-    pub signers: Vec<Principal>,
-    pub executed: bool,
-    pub tx_hash: Option<String>,
-    pub timestamp: u64,
-}
-
-#[derive(Clone, Debug, CandidType, Serialize, Deserialize)]
-pub struct ConfigInfo {
-    pub signers: Vec<Principal>,
-    pub threshold: u32,
-    pub network: Network,
-    pub address: Option<String>,
-    pub ecdsa_key: String,
-}
-
-#[derive(SerdeDeserialize)]
-struct BlockfrostAddress {
-    address: String,
-    amount: Vec<BlockfrostAmount>,
-    #[serde(default)]
-    stake_address: Option<String>,
-}
-
-// ==================== State ====================
-
-#[derive(Default)]
-struct State {
+struct StableState {
     signers: Vec<Principal>,
     threshold: u32,
-    transactions: HashMap<String, TransactionRecord>,
+    transactions: BTreeMap<String, TransactionRecord>,
     key_info: Option<CardanoKeyInfo>,
-    utxos: Vec<UTXO>,
     network: Network,
     blockfrost_api_key: String,
+    utxos: Vec<UTXO>,
+    pub min_fee_a: u64, // Add to store protocol parameters
+    pub min_fee_b: u64,
+    pub min_utxo: u64,
 }
 
-impl Default for Network {
+
+impl Default for StableState {
     fn default() -> Self {
-        Network::Mainnet
+        StableState {
+            signers: Vec::new(),
+            threshold: 0,
+            transactions: BTreeMap::new(),
+            key_info: None,
+            network: Network::Mainnet, // Default to Mainnet
+            blockfrost_api_key: String::new(),
+            utxos: Vec::new(),
+            min_fee_a: 44, // Default fallback
+            min_fee_b: 155381,
+            min_utxo: 999978,
+        }
     }
 }
 
-thread_local! {
-    static STATE: RefCell<State> = RefCell::new(State::default());
+#[derive(Clone, Debug, CandidType, Serialize, Deserialize)]
+struct CardanoKeyInfo {
+    ed25519_public_key: Vec<u8>,
+    cardano_address: String, // Blake2b-224, Ed25519-based
+    derivation_path: Vec<Vec<u8>>,
 }
 
-// ==================== Blockfrost Types ====================
+#[derive(Clone, Debug, CandidType, Serialize, Deserialize)]
+struct TransactionRecord {
+    id: String,
+    to_address: String,
+    amount: u64, // Lovelace
+    signers: Vec<Principal>,
+    executed: bool,
+    tx_hash: Option<String>,
+    timestamp: u64,
+}
 
-#[derive(SerdeDeserialize)]
+
+#[derive(Deserialize)]
+struct ProtocolParameters {
+    min_fee_a: u64,
+    min_fee_b: u64,
+    min_utxo: u64,
+}
+
+
+#[derive(Clone, Debug, CandidType, Serialize, Deserialize)]
+pub enum Network {
+    Preprod,
+    Mainnet,
+}
+
+
+#[derive(Clone, Debug, CandidType, Serialize, Deserialize,PartialEq)]
+struct UTXO {
+    tx_hash: String,
+    output_index: u32,
+    amount: u64,
+    address: String,
+}
+
+#[derive(Deserialize, Serialize)]
+pub struct BlockfrostAddress {
+    pub address: String,
+    pub amount: Vec<BlockfrostAmount>,
+    #[serde(default)]
+    pub stake_address: Option<String>,
+    #[serde(default)]
+    pub r#type: Option<String>, // Changed from `type` to `r#type`
+}
+#[derive(Deserialize, Serialize)]
 struct BlockfrostUTXO {
     tx_hash: String,
     output_index: u32,
     amount: Vec<BlockfrostAmount>,
+    address: String,
 }
 
-#[derive(SerdeDeserialize)]
+#[derive(Deserialize, Serialize)]
 struct BlockfrostAmount {
     unit: String,
     quantity: String,
 }
 
-// ==================== Initialization ====================
+#[derive(CandidType, Serialize, Deserialize)]
+pub enum SchnorrAlgorithm {
+    #[serde(rename = "ed25519")]
+    Ed25519,
+    #[serde(rename = "bip340secp256k1")]
+    Bip340Secp256k1,
+}
+#[derive(CandidType, Serialize, Deserialize)]
+struct SchnorrKeyId {
+    algorithm: SchnorrAlgorithm,
+    name: String,
+}
 
-pub  fn init_cardano_multisig(
-    signers: Vec<Principal>,
-    threshold: u32,
-) -> Result<String, String> {
+#[derive(CandidType, Serialize, Deserialize)]
+struct SchnorrPublicKeyArgument {
+    canister_id: Option<Principal>,
+    derivation_path: Vec<Vec<u8>>,
+    key_id: SchnorrKeyId,
+}
+
+#[derive(CandidType, Serialize, Deserialize)]
+struct SchnorrPublicKeyResponse {
+    public_key: Vec<u8>,
+}
+
+#[derive(CandidType, Serialize, Deserialize)]
+struct SignWithSchnorrArgument {
+    message: Vec<u8>,
+    derivation_path: Vec<Vec<u8>>,
+    key_id: SchnorrKeyId,
+}
+
+#[derive(CandidType, Serialize, Deserialize)]
+struct SignWithSchnorrResponse {
+    signature: Vec<u8>,
+}
+
+#[update]
+pub fn init_cardano_multisig(signers: Vec<Principal>, threshold: u32) -> Result<String, String> {
     if signers.is_empty() {
         return Err("Signers list cannot be empty".to_string());
     }
-    
     if threshold == 0 || threshold > signers.len() as u32 {
         return Err(format!("Invalid threshold: must be between 1 and {}", signers.len()));
     }
-    
+
+ // Set protocol parameters based on network
+    let (min_fee_a, min_fee_b, min_utxo) = match Network::Mainnet {
+        Network::Preprod => (44, 155381, 431976),
+        Network::Mainnet => (44, 155381, 999978),
+    };
+
     STATE.with(|state| {
         let mut s = state.borrow_mut();
         s.signers = signers.clone();
         s.threshold = threshold;
-        s.network =  Network::Mainnet;
-        s.blockfrost_api_key = BLOCKFROST_API_KEY.to_string();
+        s.network = Network::Mainnet;
+        s.blockfrost_api_key = "mainnetThVxLHKeXzlk3bMlYNzTRJyAYqO8zcPu".to_string();
+        s.min_fee_a = min_fee_a;
+        s.min_fee_b = min_fee_b;
+        s.min_utxo = min_utxo;
     });
-    
+
     Ok(format!("Initialized: {} signers, threshold {}", signers.len(), threshold))
 }
-
-// ==================== Address Generation ====================
 
 #[update]
 pub async fn get_cardano_address() -> Result<String, String> {
     let caller_principal = caller();
     let derivation_path = vec![b"cardano".to_vec(), caller_principal.as_slice().to_vec()];
     
-    let request = EcdsaPublicKeyArgument {
+    let request = SchnorrPublicKeyArgument {
         canister_id: None,
         derivation_path: derivation_path.clone(),
-        key_id: EcdsaKeyId {
-            curve: EcdsaCurve::Secp256k1,
-            name: ECDSA_KEY_NAME.to_string(),
+        key_id: SchnorrKeyId {
+            algorithm: SchnorrAlgorithm::Ed25519,
+            name: SCHNORR_KEY_NAME.to_string(),
         },
     };
     
-    let (response,): (EcdsaPublicKeyResponse,) = ecdsa_public_key(request)
-        .await
-        .map_err(|e| format!("Failed to get public key: {:?}", e))?;
-    
+
+    let (response,): (SchnorrPublicKeyResponse,) = call_with_payment128(
+        Principal::management_canister(),
+        "schnorr_public_key",
+        (request,),
+        CYCLES_FOR_SCHNORR_PUBLIC_KEY,
+    )
+    .await
+    .map_err(|e| format!("Failed to get public key: {:?}", e))?;
+
+    let ed25519_pub_key = response.public_key;
+    if ed25519_pub_key.len() != 32 {
+        return Err(format!("Invalid Ed25519 public key length: {}", ed25519_pub_key.len()));
+    }
+
     let network = STATE.with(|s| s.borrow().network.clone());
-    let address = derive_cardano_address(&response.public_key, &network)?;
     
+    let (header, hrp) = match network {
+        Network::Mainnet => (0x61, "addr"),
+        Network::Preprod => (0x60, "addr_test"),
+    };
+    
+    // Generate Cardano address (Blake2b-224)
+    let mut blake_hasher = Blake2b::<blake2::digest::consts::U28>::new();
+    blake_hasher.update(&ed25519_pub_key);
+    let blake_key_hash = blake_hasher.finalize();
+    let mut address_bytes = vec![header];
+    address_bytes.extend_from_slice(&blake_key_hash);
+    let address = bech32::encode(
+        hrp,
+        address_bytes.to_base32(),
+        Variant::Bech32
+    ).map_err(|e| format!("Bech32 encoding failed for Cardano address: {:?}", e))?;
+
     let key_info = CardanoKeyInfo {
-        public_key: response.public_key,
+        ed25519_public_key: ed25519_pub_key,
         cardano_address: address.clone(),
         derivation_path,
     };
@@ -174,40 +251,19 @@ pub async fn get_cardano_address() -> Result<String, String> {
     Ok(address)
 }
 
-fn derive_cardano_address(public_key: &[u8], network: &Network) -> Result<String, String> {
-    // Hash the public key
-    let mut hasher = Sha256::new();
-    hasher.update(public_key);
-    let key_hash = hasher.finalize();
-    
-    // Cardano address header byte
-    // 0b0110_0001 = 0x61 for mainnet enterprise address
-    // 0b0110_0000 = 0x60 for testnet enterprise address
-    let header: u8 = match network {
-        Network::Mainnet => 0x61,  // Enterprise address mainnet
-        Network::Preprod => 0x60,  // Enterprise address testnet
-    };
-    
-    // Build address bytes: [header][28-byte payment credential]
-    let mut address_bytes = vec![header];
-    address_bytes.extend_from_slice(&key_hash[..28]);
-    
-    // Bech32 human-readable part
-    let hrp = match network {
-        Network::Mainnet => "addr",
-        Network::Preprod => "addr_test",
-    };
-    
-    // Encode with bech32
-    let address = bech32::encode(
-        hrp,
-        address_bytes.to_base32(),
-        Variant::Bech32
-    ).map_err(|e| format!("Bech32 encoding failed: {:?}", e))?;
-    
-    Ok(address)
+#[query]
+fn get_current_address() -> Result<String, String> {
+    STATE.with(|state| {
+        state
+            .borrow()
+            .key_info
+            .as_ref()
+            .map(|k| k.cardano_address.clone())
+            .ok_or("Address not initialized".to_string())
+    })
 }
-// ==================== Balance Check ====================
+
+
 
 #[update]
 pub async fn get_balance() -> Result<String, String> {
@@ -215,7 +271,7 @@ pub async fn get_balance() -> Result<String, String> {
         let s = state.borrow();
         (
             s.key_info.as_ref().map(|k| k.cardano_address.clone()),
-            s.blockfrost_api_key.clone(),  
+            s.blockfrost_api_key.clone(),
             s.network.clone(),
         )
     });
@@ -223,7 +279,7 @@ pub async fn get_balance() -> Result<String, String> {
     let address = address.ok_or("Address not generated. Call get_cardano_address first")?;
     
     if api_key.is_empty() {
-        return Err("API key not set. Call init first".to_string());
+        return Err("API key not set. Call init_cardano_multisig first".to_string());
     }
     
     let base_url = match network {
@@ -235,7 +291,6 @@ pub async fn get_balance() -> Result<String, String> {
     
     ic_cdk::println!("🌐 Full URL: {}", url);
     ic_cdk::println!("🔑 API Key length: {}", api_key.len());
-    ic_cdk::println!("🔑 API Key prefix: {}", &api_key[..10.min(api_key.len())]);
     
     let request = CanisterHttpRequestArgument {
         url,
@@ -258,8 +313,7 @@ pub async fn get_balance() -> Result<String, String> {
     ic_cdk::println!("✅ Response status: {}", response.status);
     
     if response.status != 200u64 {
-        let error_body = String::from_utf8(response.body.clone())
-            .unwrap_or_else(|_| "Unable to parse error".to_string());
+        let error_body = String::from_utf8_lossy(&response.body);
         ic_cdk::println!("❌ Error body: {}", error_body);
         return Err(format!("Blockfrost error: status {}, body: {}", response.status, error_body));
     }
@@ -267,7 +321,7 @@ pub async fn get_balance() -> Result<String, String> {
     let body = String::from_utf8(response.body)
         .map_err(|_| "Invalid response")?;
     
-    let addr_info: BlockfrostAddress = serde_json::from_str(&body)
+    let addr_info: BlockfrostAddress = from_str(&body)
         .map_err(|e| format!("Parse error: {}", e))?;
     
     let total_lovelace = addr_info.amount
@@ -280,273 +334,146 @@ pub async fn get_balance() -> Result<String, String> {
     Ok(format!("{:.6} ADA ({} Lovelace)", ada, total_lovelace))
 }
 
-// ==================== Create & Sign Transaction ====================
+
+fn fetch_utxos_internal() -> Result<(), String> {
+    let (address, min_utxo) = STATE.with(|state| {
+        let s = state.borrow();
+        (
+            s.key_info.as_ref().map(|k| k.cardano_address.clone()),
+            s.min_utxo,
+        )
+    });
+
+    let address = address.ok_or("Address not initialized")?;
+
+    // Use cached UTXOs from state (populated by update_utxos)
+    let cached_utxos = STATE.with(|state| {
+        state
+            .borrow()
+            .utxos
+            .iter()
+            .filter(|utxo| {
+                if utxo.amount < min_utxo {
+                    ic_cdk::println!(
+                        "Skipping UTXO {}:{} with amount {} (below min {})",
+                        utxo.tx_hash,
+                        utxo.output_index,
+                        utxo.amount,
+                        min_utxo
+                    );
+                    false
+                } else {
+                    true
+                }
+            })
+            .cloned()
+            .collect::<Vec<UTXO>>()
+    });
+
+    if cached_utxos.is_empty() {
+        ic_cdk::println!("No valid UTXOs in cache. Call update_utxos to fetch from Blockfrost.");
+        return Err("No valid UTXOs available".to_string());
+    }
+
+    ic_cdk::println!("Using cached UTXOs: {:?}", cached_utxos);
+    STATE.with(|state| {
+        state.borrow_mut().utxos = cached_utxos;
+    });
+
+    Ok(())
+}
 
 #[update]
-pub async fn create_or_sign_cardano_transaction(
-    msg_id: String,
-    to_address: String,
-    amount: String,
-) -> Result<String, String> {
-    let caller_principal = caller();
-    
-    // Validation
-    if msg_id.trim().is_empty() {
-        return Err("Transaction ID cannot be empty".to_string());
-    }
-    
-    if to_address.trim().is_empty() {
-        return Err("Address cannot be empty".to_string());
-    }
-    
-    let (is_authorized, network, threshold) = STATE.with(|state| {
-        let s = state.borrow();
-        (
-            s.signers.contains(&caller_principal),
-            s.network.clone(),
-            s.threshold,
-        )
-    });
-    
-    if !is_authorized {
-        return Err("Caller not authorized".to_string());
-    }
-    
-    validate_address(&to_address, &network)?;
-    
-    let amount_lovelace = parse_ada_amount(&amount)?;
-    
-    if amount_lovelace < 1_000_000 {
-        return Err("Minimum amount: 1 ADA".to_string());
-    }
-    
-    // Check if transaction exists
-    let tx_exists = STATE.with(|state| {
-        state.borrow().transactions.contains_key(&msg_id)
-    });
-    
-    if tx_exists {
-        // Add signature
-        let should_execute = STATE.with(|state| {
-            let mut s = state.borrow_mut();
-            if let Some(tx) = s.transactions.get_mut(&msg_id) {
-                if tx.executed {
-                    return false;
-                }
-                if !tx.signers.contains(&caller_principal) {
-                    tx.signers.push(caller_principal);
-                }
-                tx.signers.len() as u32 >= s.threshold
-            } else {
-                false
-            }
-        });
-        
-        if should_execute {
-            execute_transaction(msg_id.clone()).await
-        } else {
-            let count = STATE.with(|s| {
-                s.borrow().transactions.get(&msg_id).unwrap().signers.len()
-            });
-            Ok(format!("Signature added: {}/{}", count, threshold))
-        }
-    } else {
-        // Create new transaction
-        let tx = TransactionRecord {
-            id: msg_id.clone(),
-            to_address,
-            amount: amount_lovelace,
-            signers: vec![caller_principal],
-            executed: false,
-            tx_hash: None,
-            timestamp: api::time(),
-        };
-        
-        STATE.with(|state| {
-            state.borrow_mut().transactions.insert(msg_id.clone(), tx);
-        });
-        
-        if threshold == 1 {
-            execute_transaction(msg_id.clone()).await
-        } else {
-            Ok(format!("Transaction created: 1/{}", threshold))
-        }
-    }
-}
-
-async fn execute_transaction(msg_id: String) -> Result<String, String> {
-    let (tx, key_info, utxos) = STATE.with(|state| {
-        let s = state.borrow();
-        (
-            s.transactions.get(&msg_id).cloned(),
-            s.key_info.clone(),
-            s.utxos.clone(),
-        )
-    });
-    
-    let tx = tx.ok_or("Transaction not found")?;
-    let key_info = key_info.ok_or("Key info not initialized")?;
-    
-    if utxos.is_empty() {
-        ic_cdk::println!("📦 No cached UTXOs, fetching from blockchain...");
-        fetch_utxos_internal().await?;
-    }
-
-    // Get fresh UTXOs from state
-    let utxos = STATE.with(|s| s.borrow().utxos.clone());
-    
-    if utxos.is_empty() {
-        return Err("No UTXOs available. Fund your address first".to_string());
-    }
-
-    
-    // Select UTXOs
-    let fee = 200_000u64; // ~0.2 ADA
-    let total_needed = tx.amount + fee;
-    
-    let (selected, total_input) = select_utxos(&utxos, total_needed)?;
-    
-    if total_input < total_needed {
-        return Err(format!(
-            "Insufficient funds: need {} ADA, have {} ADA",
-            total_needed as f64 / 1_000_000.0,
-            total_input as f64 / 1_000_000.0
-        ));
-    }
-    
-    let change = total_input - tx.amount - fee;
-    
-    // Build transaction hash
-    let tx_body_hash = create_tx_hash(&tx, &selected, change, fee, &key_info.cardano_address)?;
-    
-    ic_cdk::println!("Signing transaction {}: {} ADA", msg_id, tx.amount as f64 / 1_000_000.0);
-    
-    // Sign with ECDSA
-    let request = SignWithEcdsaArgument {
-        message_hash: tx_body_hash,
-        derivation_path: key_info.derivation_path.clone(),
-        key_id: EcdsaKeyId {
-            curve: EcdsaCurve::Secp256k1,
-            name: ECDSA_KEY_NAME.to_string(),
-        },
-    };
-    
-    let (response,): (SignWithEcdsaResponse,) = sign_with_ecdsa(request)
-        .await
-        .map_err(|e| format!("Signing failed: {:?}", e))?;
-    
-    ic_cdk::println!("Signature created: {} bytes", response.signature.len());
-    
-    // Build and submit transaction
-    let signed_tx = build_signed_tx(&tx, &selected, change, fee, &response.signature, &key_info)?;
-    let tx_hash = submit_transaction(&signed_tx).await?;
-    
-    // Update state
-    STATE.with(|state| {
-        let mut s = state.borrow_mut();
-        if let Some(transaction) = s.transactions.get_mut(&msg_id) {
-            transaction.executed = true;
-            transaction.tx_hash = Some(tx_hash.clone());
-        }
-    });
-    
-    let explorer = get_explorer_url(&tx_hash);
-    Ok(format!(
-        "Transaction executed!\nTx Hash: {}\nExplorer: {}",
-        tx_hash, explorer
-    ))
-}
-
-
-async fn fetch_utxos_internal() -> Result<(), String> {
-    let (address, api_key, network) = STATE.with(|state| {
+async fn update_utxos() -> Result<(), String> {
+    let (address, api_key, network, min_utxo) = STATE.with(|state| {
         let s = state.borrow();
         (
             s.key_info.as_ref().map(|k| k.cardano_address.clone()),
             s.blockfrost_api_key.clone(),
             s.network.clone(),
+            s.min_utxo,
         )
     });
-    
+
     let address = address.ok_or("Address not initialized")?;
-    
-    if api_key.is_empty() {
-        return Err("API key not set".to_string());
-    }
-    
-    let base_url = match network {
-        Network::Mainnet => BLOCKFROST_MAINNET,
-        Network::Preprod => BLOCKFROST_PREPROD,
-    };
-    
-    let url = format!("{}/addresses/{}/utxos", base_url, address);
-    
+
+    let url = format!(
+        "{}/addresses/{}/utxos",
+        match network {
+            Network::Mainnet => BLOCKFROST_MAINNET,
+            Network::Preprod => BLOCKFROST_PREPROD,
+        },
+        address
+    );
+
     let request = CanisterHttpRequestArgument {
         url,
         method: HttpMethod::GET,
         body: None,
         max_response_bytes: Some(2_000_000),
         transform: None,
-        headers: vec![
-            HttpHeader {
-                name: "project_id".to_string(),
-                value: api_key,
-            },
-        ],
+        headers: vec![HttpHeader {
+            name: "project_id".to_string(),
+            value: api_key,
+        }],
     };
-    
+
     let (response,): (HttpResponse,) = http_request(request, 25_000_000_000)
         .await
         .map_err(|e| format!("HTTP request failed: {:?}", e))?;
-    
+
+    ic_cdk::println!("✅ UTXO Response status: {}", response.status);
+    ic_cdk::println!("📄 UTXO Raw response body: {}", String::from_utf8_lossy(&response.body));
+
     if response.status != 200u64 {
-        return Err(format!("Blockfrost error: status {}", response.status));
+        ic_cdk::println!("Failed to fetch UTXOs for {}: status {}", address, response.status);
+        return Err(format!("Blockfrost API returned status {}", response.status));
     }
-    
-    let body = String::from_utf8(response.body)
-        .map_err(|_| "Invalid response")?;
-    
-    let blockfrost_utxos: Vec<BlockfrostUTXO> = serde_json::from_str(&body)
-        .map_err(|e| format!("Parse error: {}", e))?;
-    
+
+    let body = String::from_utf8(response.body).map_err(|_| "Invalid response")?;
+
+    let blockfrost_utxos: Vec<BlockfrostUTXO> = from_str(&body).map_err(|e| format!("Parse error: {}", e))?;
+
     let cached_utxos: Vec<UTXO> = blockfrost_utxos
         .into_iter()
         .filter_map(|utxo| {
-            let ada = utxo.amount.iter()
+            let ada = utxo
+                .amount
+                .iter()
                 .find(|a| a.unit == "lovelace")
                 .and_then(|a| a.quantity.parse::<u64>().ok())?;
-            
+            if ada < min_utxo {
+                ic_cdk::println!(
+                    "Skipping UTXO {}:{} with amount {} (below min {})",
+                    utxo.tx_hash,
+                    utxo.output_index,
+                    ada,
+                    min_utxo
+                );
+                return None;
+            }
             Some(UTXO {
                 tx_hash: utxo.tx_hash,
                 output_index: utxo.output_index,
                 amount: ada,
+                address: utxo.address,
             })
         })
         .collect();
-    
+
+    ic_cdk::println!("Fetched UTXOs: {:?}", cached_utxos);
     STATE.with(|state| {
         state.borrow_mut().utxos = cached_utxos;
     });
-    
+
     Ok(())
 }
 
-fn select_utxos(utxos: &[UTXO], amount_needed: u64) -> Result<(Vec<UTXO>, u64), String> {
-    let mut selected = Vec::new();
-    let mut total = 0u64;
-    
-    let mut sorted = utxos.to_vec();
-    sorted.sort_by(|a, b| b.amount.cmp(&a.amount));
-    
-    for utxo in sorted {
-        selected.push(utxo.clone());
-        total += utxo.amount;
-        if total >= amount_needed {
-            return Ok((selected, total));
-        }
-    }
-    
-    Err("Insufficient funds".to_string())
+fn estimate_fee(tx_size: usize) -> u64 {
+    STATE.with(|state| {
+        let s = state.borrow();
+        s.min_fee_a * tx_size as u64 + s.min_fee_b
+    })
 }
 
 fn create_tx_hash(
@@ -556,21 +483,11 @@ fn create_tx_hash(
     fee: u64,
     change_addr: &str,
 ) -> Result<Vec<u8>, String> {
-    use serde_cbor::Value;
-    use blake2::{Blake2b, Digest};
-
-    // Build transaction inputs
+    let state = STATE.with(|s| s.borrow().clone());
     let tx_inputs: Vec<Value> = inputs
         .iter()
         .map(|i| {
-            let tx_hash = hex::decode(&i.tx_hash)
-                .map_err(|e| format!("Invalid tx_hash: {}", e))?;
-            if tx_hash.len() != 32 {
-                return Err("Transaction hash must be 32 bytes".to_string());
-            }
-            if i.output_index > 1000 {
-                return Err("Output index too large".to_string());
-            }
+            let tx_hash = hex::decode(&i.tx_hash).map_err(|e| format!("Invalid tx_hash: {}", e))?;
             Ok(Value::Array(vec![
                 Value::Bytes(tx_hash),
                 Value::Integer(i.output_index as i128),
@@ -578,84 +495,110 @@ fn create_tx_hash(
         })
         .collect::<Result<Vec<_>, String>>()?;
 
-    // Build transaction outputs
-    let tx_outputs: Vec<Value> = vec![
-        Value::Array(vec![
+    let total_input: u64 = inputs.iter().map(|i| i.amount).sum();
+    let adjusted_fee = if change > 0 && change < state.min_utxo {
+        fee + change
+    } else {
+        fee
+    };
+
+    let total_output = tx.amount + adjusted_fee + if change >= state.min_utxo { change } else { 0 };
+    if total_input != total_output {
+        return Err(format!(
+            "Transaction not balanced: inputs={} lovelace, outputs={} lovelace (amount={}, fee={}, change={})",
+            total_input, total_output, tx.amount, adjusted_fee, change
+        ));
+    }
+
+    let tx_outputs: Vec<Value> = if change >= state.min_utxo {
+        vec![
+            Value::Array(vec![
+                Value::Bytes(decode_address(&tx.to_address)?),
+                Value::Integer(tx.amount as i128),
+            ]),
+            Value::Array(vec![
+                Value::Bytes(decode_address(change_addr)?),
+                Value::Integer(change as i128),
+            ]),
+        ]
+    } else {
+        vec![Value::Array(vec![
             Value::Bytes(decode_address(&tx.to_address)?),
             Value::Integer(tx.amount as i128),
-        ]),
-        Value::Array(vec![
-            Value::Bytes(decode_address(change_addr)?),
-            Value::Integer(change as i128),
-        ]),
-    ];
+        ])]
+    };
 
-    // TTL
+    ic_cdk::println!(
+        "Inputs sum: {} lovelace, Outputs sum: {} lovelace (amount: {}, fee: {}, change: {})",
+        total_input, total_output, tx.amount, adjusted_fee, change
+    );
+
     let current_slot = (api::time() / 1_000_000_000) as i128;
-    let ttl = current_slot + 3600; // Note: May need adjustment for Cardano slots
+    let ttl = current_slot + 3600;
 
-    // Transaction body
-    let body = Value::Map(vec![
-        (Value::Integer(0), Value::Array(tx_inputs)),
-        (Value::Integer(1), Value::Array(tx_outputs)),
-        (Value::Integer(2), Value::Integer(fee as i128)),
-        (Value::Integer(3), Value::Integer(ttl)),
-    ].into_iter().collect());
+    let body = Value::Map(
+        vec![
+            (Value::Integer(0), Value::Array(tx_inputs)),
+            (Value::Integer(1), Value::Array(tx_outputs)),
+            (Value::Integer(2), Value::Integer(adjusted_fee as i128)),
+            (Value::Integer(3), Value::Integer(ttl)),
+        ]
+        .into_iter()
+        .collect(),
+    );
 
-    // Encode to CBOR
     let mut cbor_bytes = Vec::new();
-    serde_cbor::to_writer(&mut cbor_bytes, &body)
-        .map_err(|e| format!("CBOR encoding failed: {}", e))?;
+    serde_cbor::to_writer(&mut cbor_bytes, &body).map_err(|e| format!("CBOR encoding failed: {}", e))?;
 
-    // Hash with Blake2b-256
-    let mut hasher = Blake2b::new_with_params(&[], &[], 32); // 32-byte hash
+    let mut hasher = sha2::Sha256::new();
     hasher.update(&cbor_bytes);
     Ok(hasher.finalize().to_vec())
 }
 
-fn build_signed_tx(
+async fn build_signed_tx(
     tx: &TransactionRecord,
     inputs: &[UTXO],
     change: u64,
     fee: u64,
-    signature: &[u8],
     key_info: &CardanoKeyInfo,
 ) -> Result<Vec<u8>, String> {
-    use serde_cbor::Value;
+    let state = STATE.with(|s| s.borrow().clone());
+    let pub_key_bytes = key_info.ed25519_public_key.clone();
 
-    // Validate inputs
-    if inputs.is_empty() {
-        return Err("No transaction inputs provided".to_string());
-    }
-    if signature.len() != 64 {
-        return Err(format!("Invalid signature length: {}", signature.len()));
-    }
-    if tx.amount == 0 {
-        return Err("Transaction amount must be positive".to_string());
-    }
-    if fee == 0 {
-        return Err("Fee must be positive".to_string());
+    let mut blake_hasher = Blake2b::<blake2::digest::consts::U28>::new();
+    blake_hasher.update(&pub_key_bytes);
+    let key_hash = blake_hasher.finalize();
+    for utxo in inputs {
+        let addr_bytes = decode_address(&utxo.address)?;
+        if addr_bytes.len() < 29 || addr_bytes[1..29] != *key_hash.as_slice() {
+            return Err(format!("UTXO address mismatch: {}", utxo.address));
+        }
     }
 
-    // Validate input amount covers output + fee
     let total_input: u64 = inputs.iter().map(|i| i.amount).sum();
-    if total_input < tx.amount + change + fee {
-        return Err("Insufficient input amount".to_string());
+    let adjusted_fee = if change > 0 && change < state.min_utxo {
+        fee + change // Absorb small change into fee
+    } else {
+        fee
+    };
+
+    let total_output = tx.amount + adjusted_fee + if change >= state.min_utxo { change } else { 0 };
+    if total_input != total_output {
+        return Err(format!(
+            "Transaction not balanced: inputs={} lovelace, outputs={} lovelace (amount={}, fee={}, change={})",
+            total_input, total_output, tx.amount, adjusted_fee, change
+        ));
     }
 
-    // Build transaction inputs
+    ic_cdk::println!("Transaction inputs: {:?}", inputs);
+    ic_cdk::println!("Transaction amount: {} lovelace, fee: {}, adjusted_fee: {}, change: {}", 
+        tx.amount, fee, adjusted_fee, change);
+
     let tx_inputs: Vec<Value> = inputs
         .iter()
         .map(|i| {
             let tx_hash = hex::decode(&i.tx_hash)
                 .map_err(|e| format!("Invalid tx_hash: {}", e))?;
-            if tx_hash.len() != 32 {
-                return Err("Transaction hash must be 32 bytes".to_string());
-            }
-            // Optional: Add a reasonable bounds check if needed
-            if i.output_index > 1000 {
-                return Err("Output index too large".to_string());
-            }
             Ok(Value::Array(vec![
                 Value::Bytes(tx_hash),
                 Value::Integer(i.output_index as i128),
@@ -663,98 +606,103 @@ fn build_signed_tx(
         })
         .collect::<Result<Vec<_>, String>>()?;
 
-    // Build transaction outputs
-    let tx_outputs: Vec<Value> = vec![
-        Value::Array(vec![
+    let tx_outputs: Vec<Value> = if change >= state.min_utxo {
+        vec![
+            Value::Array(vec![
+                Value::Bytes(decode_address(&tx.to_address)?),
+                Value::Integer(tx.amount as i128),
+            ]),
+            Value::Array(vec![
+                Value::Bytes(decode_address(&key_info.cardano_address)?),
+                Value::Integer(change as i128),
+            ]),
+        ]
+    } else {
+        vec![Value::Array(vec![
             Value::Bytes(decode_address(&tx.to_address)?),
             Value::Integer(tx.amount as i128),
-        ]),
-        Value::Array(vec![
-            Value::Bytes(decode_address(&key_info.cardano_address)?),
-            Value::Integer(change as i128),
-        ]),
-    ];
-
-    // Process public key (ensure 32 bytes)
-    let public_key_bytes = if key_info.public_key.len() == 33 && (key_info.public_key[0] == 0x02 || key_info.public_key[0] == 0x03) {
-        key_info.public_key[1..33].to_vec()
-    } else if key_info.public_key.len() == 65 {
-        let mut hasher = Sha256::new();
-        hasher.update(&key_info.public_key);
-        hasher.finalize()[..32].to_vec()
-    } else {
-        return Err(format!("Invalid public key length: {}", key_info.public_key.len()));
+        ])]
     };
 
-    // TTL
-    let current_slot = (api::time() / 1_000_000_000) as i128; // Convert nanoseconds to seconds
-    let ttl = current_slot + 3600; // 1 hour from now
+    ic_cdk::println!("Transaction outputs: {:?}", tx_outputs);
 
-    // Transaction body
+    let current_slot = (api::time() / 1_000_000_000) as i128;
+    let ttl = current_slot + 3600;
+
     let body = Value::Map(vec![
-        (Value::Integer(0), Value::Array(tx_inputs)),  // inputs
-        (Value::Integer(1), Value::Array(tx_outputs)), // outputs
-        (Value::Integer(2), Value::Integer(fee as i128)), // fee
-        (Value::Integer(3), Value::Integer(ttl)),      // TTL
+        (Value::Integer(0), Value::Array(tx_inputs)),
+        (Value::Integer(1), Value::Array(tx_outputs)),
+        (Value::Integer(2), Value::Integer(adjusted_fee as i128)),
+        (Value::Integer(3), Value::Integer(ttl)),
     ].into_iter().collect());
 
-    // Witness set
-    let vkey_witness = Value::Array(vec![
-        Value::Bytes(public_key_bytes),
-        Value::Bytes(signature.to_vec()),
-    ]);
+    let mut cbor_bytes = Vec::new();
+    serde_cbor::to_writer(&mut cbor_bytes, &body)
+        .map_err(|e| format!("CBOR encoding failed: {}", e))?;
+
+    let mut hasher = Blake2b::<blake2::digest::consts::U32>::new();
+    hasher.update(&cbor_bytes);
+    let tx_body_hash = hasher.finalize().to_vec();
+
+    let request = SignWithSchnorrArgument {
+        message: tx_body_hash.clone(),
+        derivation_path: key_info.derivation_path.clone(),
+        key_id: SchnorrKeyId {
+            algorithm: SchnorrAlgorithm::Ed25519,
+            name: SCHNORR_KEY_NAME.to_string(),
+        },
+    };
+
+
+    let (response,): (SignWithSchnorrResponse,) = call_with_payment128(
+        Principal::management_canister(),
+        "sign_with_schnorr",
+        (request,),
+        CYCLES_FOR_SIGN_WITH_SCHNORR,
+    )
+    .await
+    .map_err(|e| format!("Signing failed: {:?}", e))?;
+
+    let signature = response.signature;
+    if signature.len() != 64 {
+        return Err(format!("Invalid Ed25519 signature length: {}", signature.len()));
+    }
+
     let witness_set = Value::Map(vec![
-        (Value::Integer(0), Value::Array(vec![vkey_witness])),
+        (Value::Integer(0), Value::Array(vec![Value::Array(vec![
+            Value::Bytes(pub_key_bytes),
+            Value::Bytes(signature),
+        ])])),
     ].into_iter().collect());
 
-    // Transaction (use null for no auxiliary data)
     let transaction = Value::Array(vec![
         body,
         witness_set,
-        Value::Null, // No auxiliary data
+        Value::Null,
     ]);
 
-    // Encode to CBOR
-    let mut cbor_bytes = Vec::new();
-    serde_cbor::to_writer(&mut cbor_bytes, &transaction)
+    let mut final_cbor_bytes = Vec::new();
+    serde_cbor::to_writer(&mut final_cbor_bytes, &transaction)
         .map_err(|e| format!("CBOR encoding failed: {}", e))?;
 
-    // Log CBOR for debugging
-    ic_cdk::println!("📦 CBOR transaction size: {} bytes", cbor_bytes.len());
-    ic_cdk::println!("📦 CBOR transaction hex: {}", hex::encode(&cbor_bytes));
-
-    Ok(cbor_bytes)
+    ic_cdk::println!("📦 CBOR transaction hex: {}", hex::encode(&final_cbor_bytes));
+    Ok(final_cbor_bytes)
 }
 
-// Helper function to decode bech32 address to bytes
-fn decode_address(addr: &str) -> Result<Vec<u8>, String> {
-    use bech32::FromBase32;
-    
-    let (_, data, _) = bech32::decode(addr)
-        .map_err(|e| format!("Invalid address: {}", e))?;
-    
-    Vec::<u8>::from_base32(&data)
-        .map_err(|e| format!("Address decode failed: {}", e))
-}
-
-async fn submit_transaction(tx_cbor: &[u8]) -> Result<String, String> {
-    let (api_key, network) = STATE.with(|state| {
-        let s = state.borrow();
-        (s.blockfrost_api_key.clone(), s.network.clone())
-    });
-    
-    
-    let base_url = match network {
+async fn submit_transaction(signed_tx: &[u8]) -> Result<String, String> {
+    let url = format!("{}/tx/submit", match STATE.with(|s| s.borrow().network.clone()) {
         Network::Mainnet => BLOCKFROST_MAINNET,
         Network::Preprod => BLOCKFROST_PREPROD,
-    };
+    });
     
-    let url = format!("{}/tx/submit", base_url);
+    let api_key = STATE.with(|s| s.borrow().blockfrost_api_key.clone());
+    
+    ic_cdk::println!("Submitting transaction to: {}", url);
     
     let request = CanisterHttpRequestArgument {
         url,
         method: HttpMethod::POST,
-        body: Some(tx_cbor.to_vec()),
+        body: Some(signed_tx.to_vec()),
         max_response_bytes: Some(2_000_000),
         transform: None,
         headers: vec![
@@ -771,140 +719,299 @@ async fn submit_transaction(tx_cbor: &[u8]) -> Result<String, String> {
     
     let (response,): (HttpResponse,) = http_request(request, 25_000_000_000)
         .await
-        .map_err(|e| format!("Submission failed: {:?}", e))?;
+        .map_err(|e| format!("HTTP request failed: {:?}", e))?;
     
-    let body = String::from_utf8(response.body)
-        .map_err(|_| "Invalid response")?;
+    ic_cdk::println!("✅ Transaction submission status: {}", response.status);
     
     if response.status != 200u64 {
-        return Err(format!("Submission failed: {}", body));
+        let error_body = String::from_utf8_lossy(&response.body);
+        ic_cdk::println!("❌ Transaction submission error: {}", error_body);
+        return Err(format!("Transaction submission failed: status {}, body: {}", response.status, error_body));
     }
     
-    if body.starts_with('"') && body.ends_with('"') {
-        Ok(body.trim_matches('"').to_string())
-    } else {
-        Ok(body)
+    String::from_utf8(response.body)
+        .map_err(|e| format!("Invalid response: {}", e))
+}
+
+
+#[update]
+pub async fn create_or_sign_cardano_transaction(msg_id: String, to_address: String, amount: String) -> Result<String, String> {
+    let amount_ada = amount.parse::<f64>().map_err(|e| format!("Invalid amount: {}", e))?;
+    let amount = (amount_ada * LOVELACE_PER_ADA as f64) as u64;
+    ic_cdk::println!("Input amount: {} ADA, converted to {} lovelace", amount_ada, amount);
+
+    let state = STATE.with(|s| s.borrow().clone());
+    if amount < state.min_utxo {
+        return Err(format!(
+            "Amount must be at least {} lovelace ({} ADA)",
+            state.min_utxo,
+            state.min_utxo as f64 / LOVELACE_PER_ADA as f64
+        ));
     }
-}
 
-// ==================== Query Functions ====================
-
-#[query]
-pub fn get_cardano_transaction(msg_id: String) -> Result<TransactionRecord, String> {
-    STATE.with(|state| {
-        state.borrow()
-            .transactions
-            .get(&msg_id)
-            .cloned()
-            .ok_or("Transaction not found".to_string())
-    })
-}
-
-#[query]
-pub fn get_all_transactions() -> Vec<(String, TransactionRecord)> {
-    STATE.with(|state| {
-        state.borrow()
-            .transactions
-            .iter()
-            .map(|(k, v)| (k.clone(), v.clone()))
-            .collect()
-    })
-}
-
-#[query]
-pub fn get_config() -> ConfigInfo {
-    STATE.with(|state| {
+    let caller_principal = caller();
+    let (signers, threshold, key_info, network) = STATE.with(|state| {
         let s = state.borrow();
-        ConfigInfo {
-            signers: s.signers.clone(),
-            threshold: s.threshold,
-            network: s.network.clone(),
-            address: s.key_info.as_ref().map(|k| k.cardano_address.clone()),
-            ecdsa_key: ECDSA_KEY_NAME.to_string(),
-        }
-    })
-}
+        (
+            s.signers.clone(),
+            s.threshold,
+            s.key_info.clone(),
+            s.network.clone(),
+        )
+    });
 
-// ==================== Utilities ====================
+    if !signers.contains(&caller_principal) {
+        return Err("Caller is not an authorized signer".to_string());
+    }
 
-fn validate_address(address: &str, network: &Network) -> Result<(), String> {
-    let prefix = match network {
-        Network::Mainnet => "addr1",
-        Network::Preprod => "addr_test1",
+    let expected_prefix = match network {
+        Network::Mainnet => "addr",
+        Network::Preprod => "addr_test",
     };
-    
-    if !address.starts_with(prefix) {
-        return Err(format!("Invalid address for {:?}", network));
+    if !to_address.starts_with(expected_prefix) {
+        return Err(format!("Invalid to_address: must start with {}", expected_prefix));
     }
-    
-    if address.len() < 50 {
-        return Err("Address too short".to_string());
+
+    let mut tx = STATE.with(|state| state.borrow().transactions.get(&msg_id).cloned());
+
+    if let Some(ref mut tx) = tx {
+        if tx.executed {
+            return Err("Transaction already executed".to_string());
+        }
+        if !tx.signers.contains(&caller_principal) {
+            tx.signers.push(caller_principal);
+        }
+    } else {
+        tx = Some(TransactionRecord {
+            id: msg_id.clone(),
+            to_address,
+            amount,
+            signers: vec![caller_principal],
+            executed: false,
+            tx_hash: None,
+            timestamp: api::time(),
+        });
     }
-    
-    Ok(())
+
+    let tx = tx.unwrap();
+    if tx.signers.len() as u32 >= threshold {
+        let key_info = key_info.ok_or("Key info not initialized")?;
+        ic_cdk::println!("🔄 Auto-updating UTXOs from blockchain...");
+        update_utxos().await?;
+        
+        let utxos = STATE.with(|s| s.borrow().utxos.clone());
+        if utxos.is_empty() {
+            return Err("No UTXOs available in your address.".to_string());
+        }
+
+        let total_balance: u64 = utxos.iter().map(|u| u.amount).sum();
+        ic_cdk::println!(
+            "💰 Current balance: {:.6} ADA from {} UTXO(s)",
+            total_balance as f64 / LOVELACE_PER_ADA as f64,
+            utxos.len()
+        );
+        ic_cdk::println!("📦 Available UTXOs: {:?}", utxos);
+
+
+    let (selected, total_input, fee, change) = select_utxos(&utxos, amount)?;
+
+        if total_input < amount + fee {
+            return Err(format!(
+                "Insufficient funds: need {:.6} ADA (amount) + {:.6} ADA (fee) = {:.6} ADA total, have {:.6} ADA",
+                amount as f64 / LOVELACE_PER_ADA as f64,
+                fee as f64 / LOVELACE_PER_ADA as f64,
+                (amount + fee) as f64 / LOVELACE_PER_ADA as f64,
+                total_input as f64 / LOVELACE_PER_ADA as f64
+            ));
+        }
+
+        ic_cdk::println!(
+            "📊 Transaction breakdown:\n   Amount: {} lovelace ({:.6} ADA)\n   Fee: {} lovelace ({:.6} ADA)\n   Change: {} lovelace ({:.6} ADA)\n   Total: {} lovelace ({:.6} ADA)",
+            amount,
+            amount as f64 / LOVELACE_PER_ADA as f64,
+            fee,
+            fee as f64 / LOVELACE_PER_ADA as f64,
+            change,
+            change as f64 / LOVELACE_PER_ADA as f64,
+            total_input,
+            total_input as f64 / LOVELACE_PER_ADA as f64
+        );
+
+        let signed_tx = build_signed_tx(&tx, &selected, change, fee, &key_info).await?;
+        let tx_hash = submit_transaction(&signed_tx).await?;
+
+        STATE.with(|state| {
+            let mut s = state.borrow_mut();
+            s.transactions.insert(
+                msg_id.clone(),
+                TransactionRecord {
+                    id: msg_id.clone(),
+                    to_address: tx.to_address,
+                    amount: tx.amount,
+                    signers: tx.signers,
+                    executed: true,
+                    tx_hash: Some(tx_hash.clone()),
+                    timestamp: tx.timestamp,
+                },
+            );
+        });
+
+        let explorer = get_explorer_url(&tx_hash);
+        Ok(format!(
+            "Transaction executed!\nTx Hash: {}\nExplorer: {}",
+            tx_hash, explorer
+        ))
+    } else {
+        STATE.with(|state| {
+            state.borrow_mut().transactions.insert(msg_id.clone(), tx.clone());
+        });
+        Ok(format!(
+            "Signed by {}/{} signers. Waiting for {} more.",
+            tx.signers.len(),
+            threshold,
+            threshold - tx.signers.len() as u32
+        ))
+    }
 }
 
-fn parse_ada_amount(amount: &str) -> Result<u64, String> {
-    let ada: f64 = amount.parse()
-        .map_err(|_| "Invalid amount format")?;
+fn select_utxos(utxos: &[UTXO], amount: u64) -> Result<(Vec<UTXO>, u64, u64, u64), String> {
+    let mut selected = Vec::new();
+    let mut total = 0u64;
+    let state = STATE.with(|s| s.borrow().clone());
     
-    if ada <= 0.0 {
-        return Err("Amount must be positive".to_string());
+    // Initial fee estimation (will be recalculated with actual tx size)
+    // Assume 1 input + 2 outputs as starting point
+    let initial_estimated_size = 250 + 180 + 90; // base + 1 input + 2 outputs
+    let base_fee = ((state.min_fee_a * initial_estimated_size + state.min_fee_b) as f64 * 1.1) as u64;
+    let min_required = amount + base_fee;
+
+    for utxo in utxos {
+        if total < min_required {
+            selected.push(utxo.clone());
+            total += utxo.amount;
+        }
     }
+
+    if total < min_required {
+        return Err(format!(
+            "Insufficient UTXO balance: need at least {} lovelace ({} ADA)",
+            min_required,
+            min_required as f64 / LOVELACE_PER_ADA as f64
+        ));
+    }
+
+    // Calculate fee with improved size estimation
+    // Transaction components:
+    // - Base transaction structure: ~250 bytes
+    // - Each input with witness: ~180 bytes
+    // - Each output: ~45 bytes
+    // - We have 1-2 outputs (recipient + optional change)
+    let num_outputs = if total - amount - (state.min_fee_a * 250 + state.min_fee_b) > 0 { 2u64 } else { 1u64 };
+    let estimated_size = 250 + selected.len() as u64 * 180 + num_outputs * 45;
+    let mut fee = state.min_fee_a * estimated_size + state.min_fee_b;
     
-    Ok((ada * 1_000_000.0) as u64)
+    // Add 10% safety margin to ensure fee is always sufficient
+    fee = (fee as f64 * 1.1) as u64;
+    
+    let mut change = total - amount - fee;
+    
+    // Handle case where change is below minimum UTXO value
+    if change > 0 && change < state.min_utxo {
+        ic_cdk::println!("⚠️  Initial change {} lovelace ({:.6} ADA) is below min_utxo {} lovelace ({:.6} ADA)", 
+            change, change as f64 / LOVELACE_PER_ADA as f64,
+            state.min_utxo, state.min_utxo as f64 / LOVELACE_PER_ADA as f64);
+        
+        // Try to add more UTXOs to make change meet minimum
+        let remaining_utxos: Vec<&UTXO> = utxos.iter().filter(|u| !selected.contains(u)).collect();
+        let mut fixed = false;
+        
+        for utxo in remaining_utxos {
+            selected.push(utxo.clone());
+            total += utxo.amount;
+            
+            // Recalculate fee with improved estimation and safety margin
+            let num_outputs_new = if total - amount - (state.min_fee_a * 250 + state.min_fee_b) > 0 { 2u64 } else { 1u64 };
+            let estimated_size_new = 250 + selected.len() as u64 * 180 + num_outputs_new * 45;
+            let new_fee = ((state.min_fee_a * estimated_size_new + state.min_fee_b) as f64 * 1.1) as u64;
+            let new_change = total - amount - new_fee;
+            
+            if new_change >= state.min_utxo {
+                fee = new_fee;
+                change = new_change;
+                fixed = true;
+                ic_cdk::println!("✅ Added UTXO, new change: {} lovelace ({:.6} ADA) - above min_utxo", 
+                    change, change as f64 / LOVELACE_PER_ADA as f64);
+                break;
+            }
+        }
+        
+        // If we couldn't fix it by adding UTXOs, error out with helpful message
+        if !fixed {
+            // Calculate the options
+            let add_amount = state.min_utxo - change;
+            let new_amount_option1 = amount + add_amount;
+            let new_change_option1 = state.min_utxo;
+            
+            // Option 2: Send maximum possible (total - fee) to eliminate change
+            let max_sendable = total.saturating_sub(fee);
+            
+            // Option 3: Send less to make change >= min_utxo
+            let max_amount_for_valid_change = total.saturating_sub(state.min_utxo).saturating_sub(fee);
+            let reduce_amount = amount.saturating_sub(max_amount_for_valid_change);
+            
+            return Err(format!(
+                "❌ Transaction would create a change output of {} lovelace ({:.6} ADA), which is below the minimum UTXO requirement of {} lovelace ({:.6} ADA).\n\n\
+                 💡 To fix this, you can either:\n\
+                 1️⃣  SEND MORE: Add {} lovelace to your amount\n\
+                    → Send {:.6} ADA total (change will be {:.6} ADA ✓)\n\n\
+                 2️⃣  SEND ALMOST EVERYTHING: Send the maximum possible\n\
+                    → Send {:.6} ADA total (no change output, all consumed)\n\n\
+                 3️⃣  SEND LESS: Reduce amount by {} lovelace\n\
+                    → Send {:.6} ADA total (change will be ~{:.6} ADA ✓)",
+                change,
+                change as f64 / LOVELACE_PER_ADA as f64,
+                state.min_utxo,
+                state.min_utxo as f64 / LOVELACE_PER_ADA as f64,
+                add_amount,
+                new_amount_option1 as f64 / LOVELACE_PER_ADA as f64,
+                new_change_option1 as f64 / LOVELACE_PER_ADA as f64,
+                max_sendable as f64 / LOVELACE_PER_ADA as f64,
+                reduce_amount,
+                max_amount_for_valid_change as f64 / LOVELACE_PER_ADA as f64,
+                state.min_utxo as f64 / LOVELACE_PER_ADA as f64
+            ));
+        }
+    }
+
+    ic_cdk::println!("✅ UTXO selection complete:");
+    ic_cdk::println!("   Selected {} UTXOs", selected.len());
+    ic_cdk::println!("   Total input: {} lovelace ({:.6} ADA)", total, total as f64 / LOVELACE_PER_ADA as f64);
+    ic_cdk::println!("   Amount to send: {} lovelace ({:.6} ADA)", amount, amount as f64 / LOVELACE_PER_ADA as f64);
+    ic_cdk::println!("   Fee: {} lovelace ({:.6} ADA)", fee, fee as f64 / LOVELACE_PER_ADA as f64);
+    ic_cdk::println!("   Change: {} lovelace ({:.6} ADA)", change, change as f64 / LOVELACE_PER_ADA as f64);
+    
+    Ok((selected, total, fee, change))
+}
+
+fn decode_address(address: &str) -> Result<Vec<u8>, String> {
+    let (_hrp, data, _variant) = bech32::decode(address).map_err(|e| format!("Failed to decode address: {}", e))?;
+    let bytes = bech32::convert_bits(&data, 5, 8, false).map_err(|e| format!("Failed to convert bits: {}", e))?;
+    Ok(bytes)
 }
 
 fn get_explorer_url(tx_hash: &str) -> String {
-    let network = STATE.with(|s| s.borrow().network.clone());
-    match network {
-        Network::Mainnet => format!("https://cardanoscan.io/transaction/{}", tx_hash),
-        Network::Preprod => format!("https://preprod.cardanoscan.io/transaction/{}", tx_hash),
-    }
+    format!("https://cardanoscan.io/transaction/{}", tx_hash)
 }
 
-// ==================== Upgrade ====================
-
-#[derive(CandidType, Deserialize)]
-pub struct StableState {
-    pub signers: Vec<Principal>,
-    pub threshold: u32,
-    pub transactions: Vec<(String, TransactionRecord)>,
-    pub key_info: Option<CardanoKeyInfo>,
-    pub network: Network,
-}
-
-#[ic_cdk::pre_upgrade]
+#[pre_upgrade]
 fn pre_upgrade() {
-    let state = STATE.with(|s| {
-        let state = s.borrow();
-        StableState {
-            signers: state.signers.clone(),
-            threshold: state.threshold,
-            transactions: state.transactions.iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect(),
-            key_info: state.key_info.clone(),
-            network: state.network.clone(),
-        }
-    });
-    
-    ic_cdk::storage::stable_save((state,))
-        .expect("Failed to save state");
+    let state = STATE.with(|s| s.borrow().clone());
+    ic_cdk::storage::stable_save((state,)).expect("Failed to save state");
 }
 
-#[ic_cdk::post_upgrade]
+#[post_upgrade]
 fn post_upgrade() {
-    let (stable_state,): (StableState,) = ic_cdk::storage::stable_restore()
+    let (state,): (StableState,) = ic_cdk::storage::stable_restore()
         .expect("Failed to restore state");
-    
-    STATE.with(|s| {
-        let mut state = s.borrow_mut();
-        state.signers = stable_state.signers;
-        state.threshold = stable_state.threshold;
-        state.transactions = stable_state.transactions.into_iter().collect();
-        state.key_info = stable_state.key_info;
-        state.network = stable_state.network;
-    });
+    STATE.with(|s| *s.borrow_mut() = state);
 }
-

@@ -5,13 +5,6 @@ type ChainConfig = record {
   network : text;
   chain_id : text;
 };
-type ConfigInfo = record {
-  threshold : nat32;
-  signers : vec principal;
-  network : Network;
-  address : opt text;
-  ecdsa_key : text;
-};
 type EthKeyInfo = record {
   public_key : blob;
   derivation_path : vec blob;
@@ -44,12 +37,10 @@ type HttpResponse = record {
   body : blob;
   headers : vec HttpHeader;
 };
-type Network = variant { Preprod; Mainnet };
 type Result = variant { Ok : BalanceInfo; Err : text };
 type Result_1 = variant { Ok : text; Err : text };
-type Result_2 = variant { Ok : TransactionRecord; Err : text };
-type Result_3 = variant { Ok : EthKeyInfo; Err : text };
-type Result_4 = variant { Ok : XrpKeyInfo; Err : text };
+type Result_2 = variant { Ok : EthKeyInfo; Err : text };
+type Result_3 = variant { Ok : XrpKeyInfo; Err : text };
 type TransactionRecord = record {
   tx_id : opt text;
   lamports : nat64;
@@ -89,15 +80,13 @@ service : {
   create_or_sign_eth_transaction_dynamic_gas : (text, text, text) -> (Result_1);
   create_or_sign_transaction : (text, text, text, text) -> (Result_1);
   create_or_sign_xrp_transaction : (text, text, text) -> (Result_1);
-  get_all_transactions : () -> (vec record { text; TransactionRecord }) query;
   get_balance : () -> (Result_1);
   get_cardano_address : () -> (Result_1);
-  get_cardano_transaction : (text) -> (Result_2) query;
-  get_config : () -> (ConfigInfo) query;
+  get_current_address : () -> (Result_1) query;
   get_cycles : () -> (nat) query;
   get_eth_address : () -> (Result_1) query;
   get_eth_balance : () -> (Result_1);
-  get_eth_key_info : () -> (Result_3);
+  get_eth_key_info : () -> (Result_2);
   get_eth_signers_and_threshold : () -> (vec principal, nat32) query;
   get_eth_transactions : () -> (
       vec record { text; EthTransactionRecord },
@@ -116,13 +105,14 @@ service : {
   get_wallet_balance : (text) -> (Result_1);
   get_xrp_address : () -> (Result_1) query;
   get_xrp_balance : () -> (Result_1);
-  get_xrp_key_info : () -> (Result_4);
+  get_xrp_key_info : () -> (Result_3);
   get_xrp_signers_and_threshold : () -> (vec principal, nat32) query;
   get_xrp_transactions : () -> (
       vec record { text; XrpTransactionRecord },
     ) query;
   health_check : () -> (text) query;
   init_all_chains : (vec principal, nat32) -> (Result_1);
+  init_cardano_multisig : (vec principal, nat32) -> (Result_1);
   init_eth_multisig : (vec principal, nat32) -> (Result_1);
   init_multisig : (vec ChainConfig) -> (Result_1);
   init_xrp_multisig : (vec principal, nat32) -> (Result_1);
